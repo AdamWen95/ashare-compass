@@ -1,0 +1,18 @@
+{
+  "strategy_version": "trend_research_v1.0.0",
+  "sample_source": "m1_config",
+  "benchmark_id": "sh.000001",
+  "benchmark_name": "上证综合指数",
+  "benchmark_selection_note": "M1 没有运行基准配置；report.example.json 为 DEMO 示例。本轮明确选择已有指数样本 sh.000001，未引入新的指数。",
+  "min_history_trading_days": 120,
+  "ma_short_days": 20,
+  "ma_long_days": 60,
+  "return_days": 20,
+  "amount_days": 20,
+  "min_avg_amount_cny": "50000000",
+  "max_candidates": 20,
+  "trend_adjustment_mode": "forward_adjusted",
+  "display_adjustment_mode": "unadjusted",
+  "allowed_exchanges": ["SH", "SZ"],
+  "allowed_board": "mainboard"
+}

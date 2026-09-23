@@ -1,0 +1,20 @@
+{
+  "schema_version": "f2-market-config-v1",
+  "config_version": "sse-szse-f2-v1",
+  "scope": "sse_szse_a",
+  "universe_config": "config/sse_szse_universe.json",
+  "database": "data/research/market.sqlite3",
+  "checkpoint_database": "data/research/f2_jobs.sqlite3",
+  "calendar_cache": "data/research/f2_calendar",
+  "output_directory": "outputs/research/sse_szse_a/market",
+  "target_trading_days": 320,
+  "recheck_days": 5,
+  "timeout_seconds": 20,
+  "max_attempts": 2,
+  "pause_seconds": 0.5,
+  "max_run_seconds": 1200,
+  "provider": "baostock",
+  "permission_status": "approved",
+  "permission_basis": "沿用已确认沪深匿名SDK个人非商业本地盘后研究；用户本轮明确批准F2原始日线及完整复权窗口采集",
+  "model_calls": 0
+}

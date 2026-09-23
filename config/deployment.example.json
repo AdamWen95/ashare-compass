@@ -1,0 +1,8 @@
+{
+  "schema_version": "deployment-local-v1",
+  "project_root": "/home/researcher/apps/ashare-daily-research",
+  "account": "researcher",
+  "ssh_host": "research-host",
+  "server_ip": "192.168.56.10",
+  "listen_port": 8502
+}

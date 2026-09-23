@@ -1,0 +1,14 @@
+{
+  "fixture_version": "demo-fixture-v1",
+  "notice": "DEMO / 人工合成数据。所有证券、价格和事件均为虚构，仅演示软件流程，不对应实际公司或真实新闻。",
+  "rows": [
+    {"security_id": "DEMO.SH.001", "name": "DEMO虚构甲", "exchange": "SH", "previous_close": 10.0, "close": 10.5, "volume_shares": 1000000, "amount_cny": 10500000, "template_candidate": true},
+    {"security_id": "DEMO.SZ.002", "name": "DEMO虚构乙", "exchange": "SZ", "previous_close": 20.0, "close": 19.6, "volume_shares": 1000000, "amount_cny": 19600000, "template_candidate": true},
+    {"security_id": "DEMO.SH.003", "name": "DEMO虚构丙", "exchange": "SH", "previous_close": 8.0, "close": 8.0, "volume_shares": 500000, "amount_cny": 4000000, "template_candidate": false},
+    {"security_id": "DEMO.SZ.004", "name": "DEMO虚构丁", "exchange": "SZ", "previous_close": 5.0, "close": 5.1, "volume_shares": 500000, "amount_cny": 2550000, "template_candidate": false}
+  ],
+  "synthetic_events": [
+    {"security_id": "DEMO.SH.001", "title": "DEMO虚构甲：人工编写的流程设备试验记录", "content": "【DEMO虚构事件】为了演示业务关联证据，人工设定虚构甲参与流程设备试验。该记录没有真实发布机构或原文，不表示任何现实项目、客户或收入。", "counterevidence": "【DEMO虚构反证】试验仍可能失败；样本未提供真实订单、收入或公告。"},
+    {"security_id": "DEMO.SZ.002", "title": "DEMO虚构乙：人工编写的节能部件验证记录", "content": "【DEMO虚构事件】为了演示不同研究方向，人工设定虚构乙开展节能部件验证。该记录没有真实发布机构或原文，不表示任何现实项目、客户或收入。", "counterevidence": "【DEMO虚构反证】部件验证进度尚未确定，不能从设定的事件推导业务增长。"}
+  ]
+}

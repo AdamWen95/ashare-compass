@@ -1,0 +1,18 @@
+{
+  "schema_version": "f3s-screening-config-v1",
+  "strategy_version": "trend_research_v1.0.0",
+  "data_semantics_version": "f3s-numeric-facts-risk-split-v1",
+  "market_scope": "sse_szse_a",
+  "allowed_boards": ["sse_main", "szse_main", "chinext", "star"],
+  "benchmark_id": "sh.000001",
+  "benchmark_name": "上证综合指数",
+  "min_history_trading_days": 120,
+  "ma_short_days": 20,
+  "ma_long_days": 60,
+  "return_days": 20,
+  "amount_days": 20,
+  "min_avg_amount_cny": "50000000",
+  "max_candidates": 20,
+  "trend_adjustment_mode": "forward_adjusted",
+  "display_adjustment_mode": "unadjusted"
+}

@@ -1,0 +1,25 @@
+{
+  "workflow_version": "m2.1",
+  "status_semantics_version": "eligibility-split-v1",
+  "strategy_version": "trend_research_v1.0.0",
+  "sample_source": "fixed_sample_config",
+  "sample_file": "config/samples/m21_30.json",
+  "eligibility_evidence_file": null,
+  "benchmark_id": "sh.000001",
+  "benchmark_name": "上证综合指数",
+  "benchmark_selection_note": "沿用M2已配置的上证综合指数，量价策略与参数不变。",
+  "min_history_trading_days": 120,
+  "ma_short_days": 20,
+  "ma_long_days": 60,
+  "return_days": 20,
+  "amount_days": 20,
+  "min_avg_amount_cny": "50000000",
+  "max_candidates": 20,
+  "trend_adjustment_mode": "forward_adjusted",
+  "display_adjustment_mode": "unadjusted",
+  "allowed_exchanges": [
+    "SH",
+    "SZ"
+  ],
+  "allowed_board": "mainboard"
+}

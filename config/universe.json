@@ -1,0 +1,44 @@
+{
+  "schema_version": "f1-universe-config-v1",
+  "scope": "all_a",
+  "required_boards": ["sse_main", "szse_main", "chinext", "star", "bse"],
+  "database": "data/research/universe.sqlite3",
+  "output_directory": "outputs/research/f1",
+  "calendar_cache": "data/research/f1_calendar",
+  "timeout_seconds": 20,
+  "max_attempts": 2,
+  "sources": [
+    {
+      "provider": "baostock",
+      "enabled": true,
+      "permission_status": "approved",
+      "purpose": "沿用现有已获准的只读本地盘后研究；不扩展为商业再分发或模型外发许可",
+      "permission_basis": "AGENTS.md、docs/09_BAOSTOCK_VERIFICATION.md 与既有 BaoStock 适配器；本轮仅匿名名单和日历调用",
+      "llm_export": false
+    },
+    {
+      "provider": "exchange_lists",
+      "enabled": false,
+      "permission_status": "unconfirmed",
+      "purpose": "待确认新增沪深北网站名单用途及逐站点访问条件",
+      "permission_basis": "原退市整理来源许可不自动扩大为全市场名单、商业使用或再分发许可",
+      "llm_export": false
+    },
+    {
+      "provider": "akshare",
+      "enabled": false,
+      "permission_status": "unconfirmed",
+      "purpose": "待核对学术研究用途限制和底层数据权限",
+      "permission_basis": "https://akshare.akfamily.xyz/special.html",
+      "llm_export": false
+    },
+    {
+      "provider": "tushare",
+      "enabled": false,
+      "permission_status": "unconfirmed",
+      "purpose": "待逐接口权限核验，不购买数据、不读取或索取聊天密钥",
+      "permission_basis": "https://tushare.pro/document/2?doc_id=25",
+      "llm_export": false
+    }
+  ]
+}

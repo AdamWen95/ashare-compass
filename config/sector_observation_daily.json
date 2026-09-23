@@ -1,0 +1,21 @@
+{
+  "workflow_version": "sector-observation-daily-v1",
+  "scope_mode": "sse_szse_a",
+  "research_mode": "sector_first",
+  "sector_config": "config/sector_first.json",
+  "observation_config": "config/sector_observation.json",
+  "universe_config": "config/sse_szse_universe.json",
+  "market_config": null,
+  "research_config": "config/m3_daily.json",
+  "sources_config": "config/m3_sources.json",
+  "eligibility_sources_config": "config/eligibility_sources.json",
+  "database": "data/research/market.sqlite3",
+  "output_directory": "outputs/research/m4",
+  "trigger_time": "21:00",
+  "model_timeout_seconds": 90,
+  "model_max_output_tokens": 4096,
+  "model_max_retries": 0,
+  "model_max_calls_per_run": 2,
+  "model_max_calls_per_day": 6,
+  "scheduled_attempts_per_day": 2
+}

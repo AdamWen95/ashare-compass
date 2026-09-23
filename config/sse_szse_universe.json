@@ -1,0 +1,89 @@
+{
+  "schema_version": "f1-universe-config-v1",
+  "scope": "sse_szse_a",
+  "required_boards": [
+    "sse_main",
+    "szse_main",
+    "chinext",
+    "star"
+  ],
+  "database": "data/research/universe.sqlite3",
+  "output_directory": "outputs/research/sse_szse_a/universe",
+  "calendar_cache": "data/research/f1_calendar",
+  "timeout_seconds": 20,
+  "max_attempts": 2,
+  "sources": [
+    {
+      "provider": "baostock",
+      "enabled": true,
+      "permission_status": "approved",
+      "purpose": "沿用现有已获准的只读本地盘后研究；不扩展为商业再分发或模型外发许可",
+      "permission_basis": "AGENTS.md、docs/09_BAOSTOCK_VERIFICATION.md 与既有 BaoStock 适配器；本轮仅匿名名单和日历调用",
+      "llm_export": false
+    },
+    {
+      "provider": "exchange_lists",
+      "enabled": true,
+      "permission_status": "approved",
+      "purpose": "个人非商业本地盘后研究；仅三家交易所公开名单与必要证券类型元数据；不向模型发送、不商业再分发",
+      "permission_basis": "用户在2026-09-11本任务明确确认上述用途，并允许逐站名单采集；逐站访问结果另行记录",
+      "llm_export": false,
+      "sites": [
+        {
+          "exchange": "SSE",
+          "enabled": true,
+          "permission_status": "approved",
+          "purpose": "个人非商业本地名单研究",
+          "permission_basis": "https://www.sse.com.cn/home/legal/；非商业浏览下载；公开名单页面及原站脚本参数",
+          "confirmed_on": "2026-09-11",
+          "access_status": "allowed",
+          "access_evidence": "outputs/verification/f11/exchange-docs/manifest.json",
+          "llm_export": false,
+          "commercial_redistribution": false
+        },
+        {
+          "exchange": "SZSE",
+          "enabled": true,
+          "permission_status": "approved",
+          "purpose": "个人非商业本地名单研究",
+          "permission_basis": "https://www.szse.cn/application/laws/；非商业浏览下载；公开A股列表及原站报告组件",
+          "confirmed_on": "2026-09-11",
+          "access_status": "allowed",
+          "access_evidence": "outputs/verification/f11/exchange-docs/manifest5.json",
+          "llm_export": false,
+          "commercial_redistribution": false
+        },
+        {
+          "exchange": "BSE",
+          "enabled": true,
+          "permission_status": "approved",
+          "purpose": "个人非商业本地名单研究",
+          "permission_basis": "用户用途已确认；网站条款及数据组件直接访问受403限制，尚未完成访问合同核验",
+          "confirmed_on": "2026-09-11",
+          "access_status": "access_denied",
+          "access_evidence": "outputs/verification/f11/exchange-docs/manifest2.json",
+          "llm_export": false,
+          "commercial_redistribution": false
+        }
+      ]
+    },
+    {
+      "provider": "akshare",
+      "enabled": false,
+      "permission_status": "unconfirmed",
+      "purpose": "待核对学术研究用途限制和底层数据权限",
+      "permission_basis": "https://akshare.akfamily.xyz/special.html",
+      "llm_export": false
+    },
+    {
+      "provider": "tushare",
+      "enabled": false,
+      "permission_status": "unconfirmed",
+      "purpose": "待逐接口权限核验，不购买数据、不读取或索取聊天密钥",
+      "permission_basis": "用户确认没有现成授权账户；保持关闭，不读取凭据、不注册、不购买；接口权限不能从Token推断",
+      "llm_export": false
+    }
+  ],
+  "exchange_metadata_cache": "data/research/f11_exchange_types",
+  "config_version": "sse-szse-universe-v1"
+}

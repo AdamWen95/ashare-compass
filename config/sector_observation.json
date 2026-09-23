@@ -1,0 +1,29 @@
+{
+  "schema_version": "daily-observation-config-v1",
+  "strategy_config": "config/sector_screening_f4s1.json",
+  "max_run_seconds": 1200,
+  "max_quote_status_seconds": 90,
+  "max_quote_status_queries": 40,
+  "model_context_enabled": true,
+  "require_delisting_check": false,
+  "company_materials_required_for_technical_observation": false,
+  "market_data_model_export": false,
+  "reference_strategy": {
+    "enabled": true,
+    "application": "shadow_only",
+    "changes_candidate_ranking": false,
+    "llm_export": false
+  },
+  "financial_review": {
+    "enabled": true,
+    "source": "baostock_public",
+    "user_authorized": true,
+    "local_storage": true,
+    "llm_export": false,
+    "redistribution": false,
+    "max_candidates": 5,
+    "max_queries": 20,
+    "max_seconds": 120,
+    "timeout_seconds": 12
+  }
+}

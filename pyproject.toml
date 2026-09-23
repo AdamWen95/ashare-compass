@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ashare-daily-research"
+version = "0.5.0"
+description = "Read-only A-share research with evidenced materials and a replaceable single-model adapter"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pandas==3.0.5",
+  "pydantic==2.12.5",
+  "tzdata==2025.3",
+  "baostock==0.9.3",
+  "streamlit==1.63.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.0.2"]
+
+[project.scripts]
+ashare-daily = "ashare_daily.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ashare_daily = ["fixtures/*.json", "reports/templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

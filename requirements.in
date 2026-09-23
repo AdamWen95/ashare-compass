@@ -1,0 +1,6 @@
+# Runtime, tests and local editable-build tooling. Full transitive pins/hashes:
+# requirements.lock (Windows x64, Python 3.12).
+-e .[test]
+setuptools==80.9.0
+pip==26.2
+

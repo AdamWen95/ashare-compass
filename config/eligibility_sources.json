@@ -1,0 +1,23 @@
+{
+  "schema_version": "exchange-eligibility-v1",
+  "sources": [
+    {
+      "source_id": "sse_mainboard_delisting",
+      "market": "SH",
+      "enabled": true,
+      "url": "https://query.sse.com.cn/commonSoaQuery.do?sqlId=PL_SSGSXX_FXJSBGPLB&domesticIndicator=P&productType=0",
+      "approved_for_local_use": true,
+      "checked_at": "2026-09-11T10:41:32+08:00",
+      "permission_basis": "2026-09-11核对https://www.sse.com.cn/home/legal/第三条非商业浏览下载；官网riskplate页面及其search_listedCompanyInfo_2021.js明确P/0筛选含义；真实响应HTTP200包含sqlId、无错误与total=0、result=[]；仅本地核验，不向模型发送名单或作商业再分发。"
+    },
+    {
+      "source_id": "szse_delisting",
+      "market": "SZ",
+      "enabled": true,
+      "url": "https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=fxjsb&loading=first",
+      "approved_for_local_use": true,
+      "checked_at": "2026-09-11T10:59:45+08:00",
+      "permission_basis": "2026-09-11实际HTTP200核对https://www.szse.cn/application/laws/index.html第三条非商业浏览下载；官网/disclosure/listed/warn/index.html明确风险警示板分类，data-s-catalog-id=fxjsb，经页面加载的report_new.min.js映射公开GET；真实JSON中tab2名称为退市整理股票，recordcount=0、pagecount=0、data=[]、error=null。robots HTTP200空规则。仅本地资格核验，不向模型发送名单或作商业再分发。"
+    }
+  ]
+}

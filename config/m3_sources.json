@@ -1,0 +1,196 @@
+{
+  "schema_version": "m3-source-registry-v1",
+  "sources": [
+    {
+      "registration": {
+        "source_url": "https://www.mofcom.gov.cn/",
+        "access_method": "Python urllib HTTPS GET 已核验聚合目录，自动发现限定路径下的公开原创文章；不执行脚本、不使用搜索后台接口",
+        "usage_limits": "个人非商业投研；仅商务部原创文字，保留文章来源；不采附件、不声称全部覆盖。全部已启用源合计每轮最多20请求、间隔1秒、15秒超时、至多2次；权限或限流错误停止同源。",
+        "enabled": true,
+        "supported_date_range": "已登记目录可见文章，按正文实际发布时间进入每日增量窗口；旧资料明确标记背景；不承诺连续历史或全市场覆盖",
+        "pagination_limits": "新闻目录最多2页，自动发现文章最多8篇，加2篇已登记背景/进展资料；目录外与条数上限外未覆盖",
+        "content_access": [
+          "metadata_only",
+          "abstract",
+          "fulltext"
+        ],
+        "cache_allowed": true,
+        "model_use_allowed": true,
+        "publish_excerpt_allowed": true,
+        "permission_basis": "2026-09-09实际HTTP200核对 https://www.mofcom.gov.cn/fzlm/wzsm/index.html ：商务部原创作品允许注明文章来源转载使用；本配置仅此类原创、非商业本地缓存及必要原文用于用户指定模型推理，输出保留商务部网站署名和短摘录，不授权第三方训练或数据再销售。公开行政公告及其最小事实范围；不采非原创转载文章。robots实际404非许可依据。",
+        "checked_at": "2026-09-09T15:27:25+08:00",
+        "source_id": "mofcom_original_news",
+        "name": "商务部网站原创新闻",
+        "category": "news"
+      },
+      "adapter": "mofcom_article",
+      "require_original": true,
+      "discovery": {
+        "index_urls": ["https://www.mofcom.gov.cn/xwfb/index.html"],
+        "article_path_prefixes": ["/xwfb/bldhd/", "/xwfb/rcxwfb/", "/xwfb/sjfzrfb/", "/xwfb/xwfyrth/"],
+        "max_index_pages": 2,
+        "max_articles": 8
+      },
+      "pages": [
+        {
+          "url": "https://www.mofcom.gov.cn/syxwfb/art/2025/art_f660a2a91364419cb6a5689dd806c5b7.html",
+          "content_type": "fulltext",
+          "event_key": "mofcom-icbc-cooperation-20250305"
+        },
+        {
+          "url": "https://www.mofcom.gov.cn/xwfb/rcxwfb/art/2026/art_28cd52420b904f3fb615c1e5548cb499.html",
+          "content_type": "fulltext",
+          "event_key": "mofcom-china-korea-fta-round16-20260909"
+        }
+      ],
+      "selectors": {
+        "body_ergodic": true
+      }
+    },
+    {
+      "registration": {
+        "source_url": "https://www.mofcom.gov.cn/",
+        "access_method": "Python urllib HTTPS GET 已核验聚合目录，自动发现限定路径下的公开原创文章；不执行脚本、不使用搜索后台接口",
+        "usage_limits": "个人非商业投研；仅商务部原创文字，保留文章来源；不采附件、不声称全部覆盖。全部已启用源合计每轮最多20请求、间隔1秒、15秒超时、至多2次；权限或限流错误停止同源。",
+        "enabled": true,
+        "supported_date_range": "已登记目录可见文章，按正文实际发布时间进入每日增量窗口；旧资料明确标记背景；不承诺连续历史或全市场覆盖",
+        "pagination_limits": "政策目录最多2页，自动发现文章最多6篇，加1篇已登记进展资料；不是上市公司公告全集",
+        "content_access": [
+          "metadata_only",
+          "abstract",
+          "fulltext"
+        ],
+        "cache_allowed": true,
+        "model_use_allowed": true,
+        "publish_excerpt_allowed": true,
+        "permission_basis": "2026-09-09实际HTTP200核对 https://www.mofcom.gov.cn/fzlm/wzsm/index.html ：商务部原创作品允许注明文章来源转载使用；本配置仅此类原创、非商业本地缓存及必要原文用于用户指定模型推理，输出保留商务部网站署名和短摘录，不授权第三方训练或数据再销售。公开行政公告及其最小事实范围；不采非原创转载文章。robots实际404非许可依据。",
+        "checked_at": "2026-09-09T15:27:25+08:00",
+        "source_id": "mofcom_public_announcements",
+        "name": "商务部网站行政公告（非上市公司公告全集）",
+        "category": "announcement"
+      },
+      "adapter": "mofcom_article",
+      "require_original": true,
+      "discovery": {
+        "index_urls": ["https://www.mofcom.gov.cn/zcfb/index.html"],
+        "article_path_prefixes": ["/zcfb/"],
+        "max_index_pages": 2,
+        "max_articles": 6
+      },
+      "pages": [
+        {
+          "url": "https://www.mofcom.gov.cn/zcfb/blgg/gg/2026/art/2026/art_89051f27ba814b4a97271861d47b39b5.html",
+          "content_type": "abstract",
+          "event_key": "mofcom-dcs-japan-preliminary-20260907",
+          "effective_from": "2026-09-08"
+        }
+      ],
+      "selectors": {
+        "body_ergodic": true
+      }
+    },
+    {
+      "registration": {
+        "source_id": "sse_public_announcements",
+        "name": "上交所公告",
+        "category": "announcement",
+        "source_url": "https://www.sse.com.cn/",
+        "access_method": "权限待核实，未调用",
+        "usage_limits": "M2.1核实非商业浏览下载；本轮未核定全文上传第三方模型及深链接展示适用条件，保持关闭。",
+        "enabled": false,
+        "supported_date_range": "未真实验证",
+        "pagination_limits": "未真实验证",
+        "content_access": [
+          "metadata_only"
+        ],
+        "model_use_allowed": false,
+        "cache_allowed": false,
+        "publish_excerpt_allowed": false,
+        "permission_basis": "M2.1核实非商业浏览下载；本轮未核定全文上传第三方模型及深链接展示适用条件，保持关闭。",
+        "checked_at": "2026-09-09T15:27:25+08:00"
+      },
+      "adapter": "permission_pending",
+      "disabled_reason": "M2.1核实非商业浏览下载；本轮未核定全文上传第三方模型及深链接展示适用条件，保持关闭。",
+      "pages": []
+    },
+    {
+      "registration": {
+        "source_id": "akshare_stock_news_em",
+        "name": "AKShare stock_news_em（东方财富资料）",
+        "category": "news",
+        "source_url": "https://akshare.akfamily.xyz/data/stock/stock.html",
+        "access_method": "权限待核实，未调用",
+        "usage_limits": "官方文档1.18.94：指定关键词最近100条；内容不保证全文。声明仅学术不可商业，当前投研用途及原供应商许可未确认，未安装、未调用。",
+        "enabled": false,
+        "supported_date_range": "未真实验证",
+        "pagination_limits": "未真实验证",
+        "content_access": [
+          "metadata_only"
+        ],
+        "model_use_allowed": false,
+        "cache_allowed": false,
+        "publish_excerpt_allowed": false,
+        "permission_basis": "官方文档1.18.94：指定关键词最近100条；内容不保证全文。声明仅学术不可商业，当前投研用途及原供应商许可未确认，未安装、未调用。",
+        "checked_at": "2026-09-09T15:27:25+08:00"
+      },
+      "adapter": "permission_pending",
+      "disabled_reason": "官方文档1.18.94：指定关键词最近100条；内容不保证全文。声明仅学术不可商业，当前投研用途及原供应商许可未确认，未安装、未调用。",
+      "pages": []
+    },
+    {
+      "registration": {
+        "source_id": "akshare_stock_notice_report",
+        "name": "AKShare stock_notice_report（东方财富公告目录）",
+        "category": "announcement",
+        "source_url": "https://akshare.akfamily.xyz/data/stock/stock.html",
+        "access_method": "权限待核实，未调用",
+        "usage_limits": "官方文档1.18.94：类别和日期，返回代码/名称/标题/类别/日期/网址；无正文。项目用途及原供应商许可未确认，未安装、未调用。",
+        "enabled": false,
+        "supported_date_range": "未真实验证",
+        "pagination_limits": "未真实验证",
+        "content_access": [
+          "metadata_only"
+        ],
+        "model_use_allowed": false,
+        "cache_allowed": false,
+        "publish_excerpt_allowed": false,
+        "permission_basis": "官方文档1.18.94：类别和日期，返回代码/名称/标题/类别/日期/网址；无正文。项目用途及原供应商许可未确认，未安装、未调用。",
+        "checked_at": "2026-09-09T15:27:25+08:00"
+      },
+      "adapter": "permission_pending",
+      "disabled_reason": "官方文档1.18.94：类别和日期，返回代码/名称/标题/类别/日期/网址；无正文。项目用途及原供应商许可未确认，未安装、未调用。",
+      "pages": []
+    },
+    {
+      "registration": {
+        "source_id": "akshare_stock_research_report_em",
+        "name": "AKShare stock_research_report_em（东方财富研报目录）",
+        "category": "research_report",
+        "source_url": "https://akshare.akfamily.xyz/data/stock/stock.html",
+        "access_method": "权限待核实，未调用",
+        "usage_limits": "官方文档1.18.94：指定个股所有目录，标题/评级/机构/分年度预测/日期/PDF链接；未取得摘要全文许可。未安装、未调用，PDF链接不代表已读全文。",
+        "enabled": false,
+        "supported_date_range": "未真实验证",
+        "pagination_limits": "未真实验证",
+        "content_access": [
+          "metadata_only"
+        ],
+        "model_use_allowed": false,
+        "cache_allowed": false,
+        "publish_excerpt_allowed": false,
+        "permission_basis": "官方文档1.18.94：指定个股所有目录，标题/评级/机构/分年度预测/日期/PDF链接；未取得摘要全文许可。未安装、未调用，PDF链接不代表已读全文。",
+        "checked_at": "2026-09-09T15:27:25+08:00"
+      },
+      "adapter": "permission_pending",
+      "disabled_reason": "官方文档1.18.94：指定个股所有目录，标题/评级/机构/分年度预测/日期/PDF链接；未取得摘要全文许可。未安装、未调用，PDF链接不代表已读全文。",
+      "pages": []
+    }
+  ],
+  "request_limits": {
+    "timeout_seconds": 15,
+    "max_attempts": 2,
+    "max_requests": 20,
+    "interval_seconds": 1
+  },
+  "review_notes": "2026-09-11已实取商务部新闻与政策聚合目录HTTP200并核对原创使用声明。每日由已登记目录自动发现同站文章；各目录有条数限制，不代表全天或全市场完整覆盖。固定工商银行合作资料仅用于明确标记的历史业务背景。公司主体及业务关联由冻结主数据和原文段落形成有版本的证据，名称命中不等于受益。"
+}

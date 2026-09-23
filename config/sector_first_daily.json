@@ -1,0 +1,10 @@
+{
+  "workflow_version": "f2s1-sector-first-v1",
+  "scope_mode": "sse_szse_a",
+  "research_mode": "sector_first",
+  "sector_config": "config/sector_first.json",
+  "universe_config": "config/sse_szse_universe.json",
+  "market_config": null,
+  "output_directory": "outputs/research/sse_szse_a/sector_daily",
+  "trigger_time": "21:00"
+}

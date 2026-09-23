@@ -1,0 +1,38 @@
+{
+  "schema_version": "f2s1-config-v1",
+  "config_version": "sse-szse-sector-first-exchange-sections-v2",
+  "market_scope": "sse_szse_a",
+  "research_mode": "sector_first",
+  "taxonomy": "exchange_industry_section_v1",
+  "universe_config": "config/sse_szse_universe.json",
+  "database": "data/research/market.sqlite3",
+  "calendar_cache": "data/research/f2_calendar",
+  "output_directory": "outputs/research/sse_szse_a/sector_first",
+  "target_trading_days": 320,
+  "timeout_seconds": 15,
+  "pause_seconds": 2,
+  "max_attempts": 1,
+  "max_run_seconds": 1200,
+  "model_calls": 0,
+  "themes_enabled": false,
+  "parameters": {
+    "preselect_limit": 6,
+    "selected_limit": 3,
+    "source_change_min_exclusive": 0,
+    "source_amount_min_exclusive": 0,
+    "median_min_exclusive": 0,
+    "advancing_fraction_min": 0.50
+  },
+  "sina": {
+    "enabled": true,
+    "user_authorized": true,
+    "permission_status": "approved",
+    "permission_basis": "用户2026-09-12明确委托F2-S1复用已调通新浪来源，在个人非商业本地研究范围采集和存储；并非声称新浪授予官方API许可",
+    "purpose": "personal_noncommercial_local_research",
+    "permitted_storage": true,
+    "permitted_automated_access": true,
+    "llm_export": false,
+    "upstream_grant_status": "unconfirmed",
+    "commercial_redistribution": false
+  }
+}

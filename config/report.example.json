@@ -1,0 +1,58 @@
+{
+  "spec_version": "2.0",
+  "timezone": "Asia/Shanghai",
+  "mode": "demo",
+  "report": {
+    "title": "今日方向简报",
+    "cutoff_local_time": "21:00",
+    "formats": [
+      "json",
+      "markdown",
+      "html"
+    ],
+    "max_candidates": 10,
+    "allow_zero_candidates": true
+  },
+  "universe": {
+    "scope": "sse_szse_a",
+    "exclude_st": true,
+    "exclude_suspended": true,
+    "exclude_delisting_period": true,
+    "min_history_trading_days": 120,
+    "coverage_threshold": 1.0
+  },
+  "screening": {
+    "strategy_id": "trend_research_v1",
+    "lookback_days": [
+      20,
+      60
+    ],
+    "min_avg_amount_20d_cny": 50000000,
+    "max_technical_pre_candidates": 20,
+    "max_event_pre_candidates": 10,
+    "benchmark_id": "CSI300"
+  },
+  "sources": {
+    "primary_daily": "baostock",
+    "enable_tushare_crosscheck": false,
+    "enable_akshare": false,
+    "enable_web_reader": false,
+    "registered_permissions_file": "config/source_permissions.local.json"
+  },
+  "quality": {
+    "critical_market_data_missing": "block_final_candidates",
+    "news_gap": "label_partial",
+    "report_evidence_missing": "withhold_claim",
+    "allow_synthetic_in_research": false
+  },
+  "research": {
+    "max_tool_calls": 8,
+    "max_evidence_per_candidate": 8,
+    "allow_external_model_content_only_when_licensed": true
+  },
+  "execution": {
+    "trading_enabled": false,
+    "portfolio_enabled": false,
+    "paper_trading_enabled": false
+  }
+}

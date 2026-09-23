@@ -1,0 +1,11 @@
+{
+  "workflow_version": "m3",
+  "prompt_version": "evidence-research-v1.0.0",
+  "max_research_objects": 10,
+  "max_evidence_documents": 1,
+  "max_chars_per_document": 4000,
+  "max_total_evidence_chars": 20000,
+  "max_claims": 3,
+  "source_registry": "config/m3_sources.json",
+  "allow_historical_reconstruction": true
+}
