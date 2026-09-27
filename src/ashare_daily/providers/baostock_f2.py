@@ -192,15 +192,17 @@ class BaoStockF2Client(BaoStockClient):
 
 
 def resolve_history_calendar(target: date, cache_root: Path, *, history_days: int = 320,
-                             client: Any = None, mode: str = "research") -> dict[str, Any]:
-    """Use verified F1 cache packets, fetch at most two missing 366-day ranges."""
+                             client: Any = None, mode: str = "research",
+                             additional_cache_roots: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Read verified cache packets across roots; write new responses only to cache_root."""
     if type(target) is not date or type(history_days) is not int or not 1 <= history_days <= 500:
         raise ValueError("target 必须是 date，history_days 必须介于 1 与 500")
     if mode not in {"research", "offline_test"} or (client is not None and not isinstance(client, BaoStockClient) and mode != "offline_test"):
         raise ValueError("真实日历客户端/测试模式不匹配")
     cache_root = Path(cache_root)
-    if mode == "offline_test" and "research" in {part.casefold() for part in cache_root.parts}:
-        raise ValueError("测试日历不可写入 research 路径")
+    cache_roots = tuple(dict.fromkeys(Path(path) for path in (cache_root, *additional_cache_roots)))
+    if mode == "offline_test" and any("research" in {part.casefold() for part in path.parts} for path in cache_roots):
+        raise ValueError("测试日历不可读取或写入 research 路径")
     output = {"schema_version": "f2-history-calendar-v1", "status": "calendar_unverified", "verified": False,
               "calendar_verified": False, "requested_date": target.isoformat(), "resolved_trade_date": None,
               "history_days": history_days, "calendar": {}, "trading_dates": [], "responses": [],
@@ -212,15 +214,16 @@ def resolve_history_calendar(target: date, cache_root: Path, *, history_days: in
         days = _verified_rows(response)
         packets.append((datetime.fromisoformat(response["fetched_at"]), path, response, days))
 
-    for path in cache_root.glob("*.json"):
-        try:
-            packet = json.loads(path.read_text(encoding="utf-8"))
-            signature = packet.pop("content_hash")
-            if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode or packet.get("first_seen_at") != packet["response"]["fetched_at"]:
-                raise ValueError("缓存来源/模式/哈希无效")
-            add(packet["response"], str(path))
-        except (ValueError, KeyError, TypeError, OSError) as exc:
-            output["cache_rejections"].append({"path": str(path), "reason": str(exc)})
+    for directory in cache_roots:
+        for path in sorted(directory.glob("*.json")):
+            try:
+                packet = json.loads(path.read_text(encoding="utf-8"))
+                signature = packet.pop("content_hash")
+                if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode or packet.get("first_seen_at") != packet["response"]["fetched_at"]:
+                    raise ValueError("缓存来源/模式/哈希无效")
+                add(packet["response"], str(path))
+            except (ValueError, KeyError, TypeError, OSError) as exc:
+                output["cache_rejections"].append({"path": str(path), "reason": str(exc)})
 
     def combined():
         selected = {}

@@ -52,6 +52,15 @@ def _read(path):
     return json.loads(_io(path).read_text(encoding="utf-8-sig"))
 
 
+def history_calendar_cache_roots(root, config, mode):
+    """Reuse the configured universe calendar without copying or changing it."""
+    if not config.get("universe_config"):
+        return ()
+    root = Path(root).resolve()
+    universe = _read(_path(root, config["universe_config"], mode))
+    return (_path(root, universe["calendar_cache"], mode),)
+
+
 def _archive_path(root, value, mode):
     """Read archived locators through a verified restore map; never use for writes."""
     text = str(value)
@@ -255,7 +264,8 @@ def _build_plan(root, selection, config, database, calendar_path):
             base["blockers"].append("unverified_selection_cannot_request_history")
         return _seal(base)
     calendar = resolve_history_calendar(date.fromisoformat(selection["target_date"]), calendar_path,
-        history_days=config.get("target_trading_days", 320), client=_CacheOnlyCalendar(), mode=mode)
+        history_days=config.get("target_trading_days", 320), client=_CacheOnlyCalendar(), mode=mode,
+        additional_cache_roots=history_calendar_cache_roots(root, config, mode))
     base["calendar"] = calendar
     if not calendar["verified"]:
         base.update(status="calendar_blocked", blockers=[calendar.get("validation_error", "trusted_calendar_unavailable")])

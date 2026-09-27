@@ -11,15 +11,17 @@ from .m2_data import normalize_adjusted_response
 from .providers.baostock import BaoStockClient, SHANGHAI, validate_request
 from .providers.baostock_f2 import BaoStockF2Client, resolve_history_calendar
 from .providers.sector_status import _permission
-from .sector_history import _CacheOnlyCalendar, _inputs, _io, _now, _archive_path, _read, _seal, _verified_file, _write_new
+from .sector_history import _CacheOnlyCalendar, _inputs, _io, _now, _archive_path, _read, _seal, _verified_file, _write_new, history_calendar_cache_roots
 
 SYMBOL = "sh.000001"
 
 
 def _dates(root, selection, config):
     _, mode, directory, _, calendar_path = _inputs(root, selection, config)
+    # Daily discovery may hold the target date while the history cache ends earlier.
     calendar = resolve_history_calendar(date.fromisoformat(selection["target_date"]), calendar_path,
-        history_days=21, client=_CacheOnlyCalendar(), mode=mode)
+        history_days=21, client=_CacheOnlyCalendar(), mode=mode,
+        additional_cache_roots=history_calendar_cache_roots(root, config, mode))
     if calendar.get("verified") is not True or len(calendar.get("trading_dates", [])) != 21 or calendar["trading_dates"][-1] != selection["target_date"]:
         raise ValueError("benchmark requires 21 exact trusted dates ending at target")
     return directory, calendar

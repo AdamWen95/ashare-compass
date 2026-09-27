@@ -77,8 +77,8 @@ def load_reference_inputs(directory):
     return tuple(values)
 
 
-def validated_panel(selection, inputs, observation):
-    """Revalidate frozen inputs and export dated bars without filling missing days."""
+def validated_panel(selection, inputs, observation, *, allow_unverified_calendar=False):
+    """Revalidate frozen inputs; daily reviews may retain an unverified calendar gap."""
     verify_selection(selection)
     _check_seal(observation, "observation")
     eligibility = observation["eligibility"]
@@ -108,9 +108,17 @@ def validated_panel(selection, inputs, observation):
     if any(observation.get(key) != value for key, value in joined.items()):
         raise ValueError("reference_observation_qualification_binding_mismatch")
     dates = inputs["calendar"].get("trading_dates", [])
-    if selection["members"] and (inputs["calendar"].get("verified") is not True
-            or dates != sorted(set(dates)) or not dates or dates[-1] != selection["target_date"]):
-        raise ValueError("reference_calendar_unverified")
+    calendar_issues = []
+    if selection["members"]:
+        if inputs["calendar"].get("verified") is not True:
+            if not allow_unverified_calendar:
+                raise ValueError("reference_calendar_unverified")
+            # All evidence bindings above remain mandatory. Unverified dates
+            # cannot define a scoring window, even when price bars are present.
+            dates = []
+            calendar_issues = ["reference_calendar_unverified"]
+        elif dates != sorted(set(dates)) or not dates or dates[-1] != selection["target_date"]:
+            raise ValueError("reference_calendar_unverified")
     cutoff = _timestamp(inputs["cutoff_at"])
     members = {}
     for member in selection["members"]:
@@ -118,7 +126,7 @@ def validated_panel(selection, inputs, observation):
         symbol = ("sh." if member["exchange"] == "SSE" else "sz.") + member["code"]
         packet = inputs["securities"].get(identity, {})
         raw, adjusted, issues, adjustment_issues, _, _, _ = _strategy_validation(member, packet, dates, cutoff)
-        problems = sorted(set(issues + adjustment_issues))
+        problems = sorted(set(issues + adjustment_issues + calendar_issues))
         rows = {}
         if not problems:
             for day in dates:
@@ -135,7 +143,7 @@ def validated_panel(selection, inputs, observation):
 
 def build_reference_review(selection, inputs, observation):
     from .reference_indicators import score_reference_technical
-    panel = validated_panel(selection, inputs, observation)
+    panel = validated_panel(selection, inputs, observation, allow_unverified_calendar=True)
     expected = panel["dates"][-120:]
     records = []
     baseline = {r["security_id"]: r for r in observation["evaluations"]}

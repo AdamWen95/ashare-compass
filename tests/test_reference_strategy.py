@@ -87,6 +87,83 @@ def test_empty_selection_has_no_fabricated_record_or_external_work(tmp_path):
     assert packet["records"] == [] and packet["network_requests"] == packet["model_calls"] == 0
 
 
+@pytest.mark.parametrize("calendar_state", ["missing", "unverified_with_dates"])
+def test_unverified_calendar_produces_unavailable_reference_scores(tmp_path, calendar_state):
+    selection, inputs, observation = sample(tmp_path)
+    inputs["calendar"]["verified"] = False
+    if calendar_state == "missing":
+        inputs["calendar"].update(trading_dates=[], issues=["calendar_timeout"])
+    freeze_input(inputs, selection)
+    observation = observed(selection, inputs, observation["eligibility"])
+    before = deepcopy((selection, inputs, observation))
+
+    packet = build_reference_review(selection, inputs, observation)
+
+    assert (selection, inputs, observation) == before
+    assert observation["status"] == "data_pending" and not observation["observations"]
+    assert len(packet["records"]) == 2
+    for record in packet["records"]:
+        assert record["baseline_technical_status"] == "unknown"
+        assert record["status"] == "unavailable" and record["score"] is None
+        assert record["components"] == [] and record["indicators"] == {}
+        assert record["window_start"] is record["window_end"] is record["window_hash"] is None
+        assert "reference_calendar_unverified" in record["issues"]
+    assert packet["source_input_hash"] == inputs["input_hash"]
+    assert packet["source_observation_hash"] == observation["content_hash"]
+    assert packet["network_requests"] == packet["model_calls"] == 0
+    validate(packet, observation)
+
+
+def test_historical_reference_comparison_still_requires_verified_calendar(tmp_path):
+    from ashare_daily.reference_study import compare_reference_strategies
+    selection, inputs, observation = sample(tmp_path)
+    inputs["calendar"].update(verified=False, trading_dates=[], issues=["calendar_timeout"])
+    freeze_input(inputs, selection)
+    observation = observed(selection, inputs, observation["eligibility"])
+    with pytest.raises(ValueError, match="reference_calendar_unverified"):
+        compare_reference_strategies(selection, inputs, observation, {})
+
+
+@pytest.mark.parametrize("damage", ["empty", "unordered", "duplicate", "wrong_target"])
+def test_claimed_verified_calendar_with_invalid_dates_still_fails_closed(tmp_path, damage):
+    selection, inputs, observation = sample(tmp_path)
+    dates = inputs["calendar"]["trading_dates"]
+    if damage == "empty":
+        inputs["calendar"]["trading_dates"] = []
+    elif damage == "unordered":
+        inputs["calendar"]["trading_dates"] = list(reversed(dates))
+    elif damage == "duplicate":
+        inputs["calendar"]["trading_dates"] = [dates[0], *dates]
+    else:
+        inputs["calendar"]["trading_dates"] = dates[:-1]
+    freeze_input(inputs, selection)
+    observation = observed(selection, inputs, observation["eligibility"])
+    with pytest.raises(ValueError, match="reference_calendar_unverified"):
+        build_reference_review(selection, inputs, observation)
+
+
+@pytest.mark.parametrize("damage,reason", [
+    ("input", "screening_requires_matching_verified_frozen_selection_and_input"),
+    ("observation", "reference_observation_hash_mismatch"),
+    ("qualification", "reference_observation_qualification_binding_mismatch"),
+])
+def test_unverified_calendar_does_not_bypass_frozen_evidence_validation(tmp_path, damage, reason):
+    selection, inputs, observation = sample(tmp_path)
+    inputs["calendar"].update(verified=False, trading_dates=[], issues=["calendar_timeout"])
+    freeze_input(inputs, selection)
+    observation = observed(selection, inputs, observation["eligibility"])
+    if damage == "input":
+        inputs["securities"]["security-0"]["raw_records"][-1]["close"] = "9999"
+    elif damage == "observation":
+        observation["counts"]["stock_count"] = 99
+    else:
+        observation["eligibility"]["evaluations"][0]["eligibility_status"] = "fail"
+        seal(observation["eligibility"])
+        seal(observation)
+    with pytest.raises(ValueError, match=reason):
+        build_reference_review(selection, inputs, observation)
+
+
 def test_legacy_selection_with_implicit_production_stays_compatible(tmp_path):
     selection, inputs, observation = sample(tmp_path)
     del selection["purpose"]

@@ -20,7 +20,7 @@ from .market_schemas import SHANGHAI
 from .operations.daily import local_path
 from .sector_benchmark import prepare_benchmark
 from .sector_eligibility import collect_sector_eligibility, evaluate_sector_eligibility
-from .sector_history import prepare_history, screening_history_inputs
+from .sector_history import history_calendar_cache_roots, prepare_history, screening_history_inputs
 from .sector_pipeline import write_new
 from .sector_screening import evaluate_selection, screening_input_hash, validate_screening_config
 from .sector_selection import digest, verify_selection
@@ -50,7 +50,7 @@ def prepare_observation_calendar(root, selection, config, *, max_seconds):
     client = BoundedCalendar(timeout_seconds=min(15, max_seconds), max_attempts=1)
     result = resolve_history_calendar(date.fromisoformat(selection["target_date"]),
         local_path(root, config["calendar_cache"]), history_days=config.get("target_trading_days", 320),
-        client=client, mode="research")
+        client=client, mode="research", additional_cache_roots=history_calendar_cache_roots(root, config, "research"))
     result["network_requests"] = client.query_count
     return result
 

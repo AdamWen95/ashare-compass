@@ -1,5 +1,6 @@
 """The daily reference stage is optional, local, source-bound and report-only."""
 from copy import deepcopy
+from datetime import date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -9,7 +10,10 @@ import pytest
 
 from ashare_daily import reference_strategy
 from ashare_daily.operations import observation as daily
-from test_observation_daily import config, fake_pipeline, invoke, report_inputs, seal
+from ashare_daily.reports.observation import build_report, read_observation_report
+from test_observation_daily import STAMP, config, fake_pipeline, invoke, report_inputs, seal
+from test_reference_strategy import freeze, observed, sample
+from test_sector_screening import freeze_input, freeze_selection
 
 
 def set_policy(root, cfg, change):
@@ -148,3 +152,44 @@ def test_failed_reference_source_validation_stops_publication_and_model(tmp_path
     assert calls == ["universe", "selection", "screening"]
     assert result["model_summary"]["call_count"] == 0
     assert "report" not in result
+
+
+def test_missing_calendar_still_publishes_partial_daily_report_with_unavailable_scores(tmp_path, monkeypatch):
+    cfg = config(tmp_path)
+    selected, inputs, observation = sample(tmp_path)
+    selected.update(mode="research", selection_status="selected")
+    freeze_selection(selected)
+    inputs["mode"] = "research"
+    inputs["calendar"].update(verified=False, trading_dates=[], issues=["calendar_timeout"])
+    freeze_input(inputs, selected)
+    eligibility = observation["eligibility"]
+    eligibility.update(mode="research", selection_id=selected["selection_id"],
+        selection_content_hash=selected["content_hash"])
+    observation = observed(selected, inputs, eligibility)
+    observation.update(evidence_directory="frozen", eligibility_policy=eligibility["eligibility_policy"])
+    seal(observation)
+    freeze(tmp_path / "frozen", selected, inputs, observation)
+    context = {"status": "skipped", "model_run": {"status": "skipped", "call_count": 0}}
+    assert build_report(selected, observation, context, planned_cutoff=STAMP, generated_at=STAMP)["data_status"] == "data_pending"
+
+    reference_helper = daily._reference_review
+    fake_pipeline(monkeypatch)
+    monkeypatch.setattr(daily, "select_observation", lambda *args: selected)
+    monkeypatch.setattr(daily, "_observe", lambda *args: observation)
+    monkeypatch.setattr(daily, "_reference_review", reference_helper)
+    result = daily.run_observation_daily(project=tmp_path, config=cfg,
+        config_path="config/sector_observation_daily.json", target=date.fromisoformat(selected["target_date"]),
+        cutoff=None, start=None, now=datetime.fromisoformat(STAMP), dry_run=False, scheduled=False, planned=None)
+
+    assert result["status"] == "partial" and result["generation_status"] == "ok"
+    assert result["module_statuses"]["screening"] == "data_pending"
+    assert result["module_statuses"]["publish"] == "ok"
+    assert result["reference_summary"]["scored_count"] == result["model_summary"]["call_count"] == 0
+    report = read_observation_report(tmp_path / "outputs", result["report"]["directory"])["report"]
+    assert report["data_status"] == "data_pending" and report["observations"] == []
+    assert report["counts"]["technical_unknown_count"] == report["counts"]["stock_count"] == 2
+    assert len(report["reference_review"]["records"]) == 2
+    assert all(row["status"] == "unavailable" and row["score"] is None
+        for row in report["reference_review"]["records"])
+    frozen_report = json.loads((Path(result["report"]["directory"]) / "report_inputs.json").read_text(encoding="utf-8"))
+    assert frozen_report["reference_review"] == report["reference_review"]
