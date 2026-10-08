@@ -244,7 +244,7 @@ def sync_date(*, project: Path, config_path: str | Path, target: date,
                 timeout_seconds=config.timeout_seconds, mode="offline_test" if offline_test else "online",
                 environment_label="local_windows_cli", transport=exchange_transport,
                 cache_directory=local_path(project, config.exchange_metadata_cache) if config.exchange_metadata_cache and not offline_test else None,
-                scope=config.scope)
+                scope=config.scope, max_attempts=config.max_attempts)
         elif permitted and not source_stopped:
             pages, manifests, requests = discover_baostock(client, target=target, directory=directory,
                 mode="offline_test" if offline_test else "online")

@@ -62,9 +62,50 @@ def _legacy_calendar(database: Path, requested_date: date, mode: str) -> dict[st
             "source_kind": "legacy_sqlite_calendar_row", "source_record": day.model_dump(mode="json")}
 
 
+def _cached_calendar(cache_root: Path, requested_date: date, mode: str,
+                     output: dict[str, Any]) -> tuple[dict[str, Any], dict[date, bool]]:
+    candidates = []
+    for path in cache_root.glob("*.json"):
+        try:
+            packet = json.loads(path.read_text(encoding="utf-8"))
+            signature = packet.pop("content_hash")
+            if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode:
+                raise ValueError("缓存来源或版本/哈希无效")
+            candidate = packet["response"]
+            if packet.get("first_seen_at") != candidate["fetched_at"]:
+                raise ValueError("缓存首次观察时间与冻结源响应不一致")
+            candidate_days = _verified_rows(candidate)
+            if requested_date not in candidate_days:
+                continue
+            candidates.append((datetime.fromisoformat(candidate["fetched_at"]), str(path), candidate, candidate_days))
+        except (ValueError, KeyError, TypeError, OSError) as cache_error:
+            output["cache_rejections"].append({"path": str(path), "reason": str(cache_error)})
+    if candidates:
+        latest_stamp = max(item[0] for item in candidates)
+        newest = [item for item in candidates if item[0] == latest_stamp]
+        # A same-time revision conflict is not resolved by filename or
+        # random hash order. Compare all overlapping dates before use.
+        combined = {}
+        conflict = False
+        for _, _, _, candidate_days in newest:
+            for day, value in candidate_days.items():
+                if day in combined and combined[day] != value:
+                    conflict = True
+                combined[day] = value
+        if conflict:
+            output["validation_error"] = "calendar_cache_conflict: 同一来源获取时间的有效日历缓存互相矛盾"
+            output["cache_conflict"] = True
+            output["cache_rejections"].extend({"path": item[1], "reason": output["validation_error"]} for item in newest)
+        else:
+            _, path, selected, days = min(newest, key=lambda item: item[1])
+            output.update(cached=True, cache_path=path)
+            return selected, days
+    return {}, {}
+
+
 def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = None,
                      legacy_database: Path | None = None, mode: str = "research") -> dict[str, Any]:
-    """Fetch the 40-day range ending at requested_date, or use verified cache.
+    """Use verified cache, otherwise fetch the 40-day range ending at requested_date.
 
     Cache has a source response hash and an envelope hash; only a complete
     calendar whose source parameters cover the exact target can be used.
@@ -81,71 +122,43 @@ def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = No
         raise ValueError("离线日历缓存不能写入 research 路径")
     started_at = datetime.now(SHANGHAI).isoformat()
     start = requested_date - timedelta(days=40)
-    response = (client or BaoStockClient()).query("calendar", start_date=start.isoformat(), end_date=requested_date.isoformat())
     output: dict[str, Any] = {
         "status": "calendar_unverified", "calendar_verified": False,
         "requested_date": requested_date.isoformat(), "resolved_trade_date": None,
         "started_at": started_at, "completed_at": None, "provider": "baostock",
-        "cached": False, "cache_path": None, "response": response,
+        "cached": False, "cache_path": None, "response": {}, "network_query_performed": False,
         "cache_rejections": [], "validation_error": None,
         "verification_kind": "online" if mode == "research" else "offline_test",
     }
-    selected = response
-    days: dict[date, bool] = {}
-    try:
-        days = _verified_rows(response)
-        if requested_date not in days:
-            raise ValueError("响应未覆盖目标日期")
-        packet = {"schema_version": "f1-calendar-cache-v1", "provider": "baostock", "mode": mode,
-                  "first_seen_at": response["fetched_at"], "response": response}
-        packet["content_hash"] = _digest(packet)
-        cache_root.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_root / f"{start}_{requested_date}_{packet['content_hash']}.json"
-        if not cache_path.exists():
-            with cache_path.open("x", encoding="utf-8") as stream:
-                json.dump(packet, stream, ensure_ascii=False, indent=2)
-                stream.write("\n")
-        output["cache_path"] = str(cache_path)
-    except (ValueError, KeyError, TypeError) as exc:
-        days = {}
-        output["validation_error"] = str(exc)
-        # Permission/limit rejection stops further requests, but reading an
-        # existing licensed local calendar does not create a new request.
-        candidates = []
-        for path in cache_root.glob("*.json"):
-            try:
-                packet = json.loads(path.read_text(encoding="utf-8"))
-                signature = packet.pop("content_hash")
-                if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode:
-                    raise ValueError("缓存来源或版本/哈希无效")
-                candidate = packet["response"]
-                if packet.get("first_seen_at") != candidate["fetched_at"]:
-                    raise ValueError("缓存首次观察时间与冻结源响应不一致")
-                candidate_days = _verified_rows(candidate)
-                if requested_date not in candidate_days:
-                    continue
-                candidates.append((datetime.fromisoformat(candidate["fetched_at"]), str(path), candidate, candidate_days))
-            except (ValueError, KeyError, TypeError, OSError) as cache_error:
-                output["cache_rejections"].append({"path": str(path), "reason": str(cache_error)})
-        if candidates:
-            latest_stamp = max(item[0] for item in candidates)
-            newest = [item for item in candidates if item[0] == latest_stamp]
-            # A same-time revision conflict is not resolved by filename or
-            # random hash order. Compare all overlapping dates before use.
-            combined = {}
-            conflict = False
-            for _, _, _, candidate_days in newest:
-                for day, value in candidate_days.items():
-                    if day in combined and combined[day] != value:
-                        conflict = True
-                    combined[day] = value
-            if conflict:
-                output["validation_error"] = "calendar_cache_conflict: 同一来源获取时间的有效日历缓存互相矛盾"
-                output["cache_conflict"] = True
-                output["cache_rejections"].extend({"path": item[1], "reason": output["validation_error"]} for item in newest)
-            else:
-                _, path, selected, days = min(newest, key=lambda item: item[1])
-                output.update(cached=True, cache_path=path)
+    # Repeated daily attempts can reuse the already verified target without
+    # spending the provider's bounded query/retry budget again.
+    selected, days = _cached_calendar(cache_root, requested_date, mode, output)
+    if requested_date not in days:
+        if output["cache_rejections"]:
+            output["cache_precheck_rejections"] = list(output["cache_rejections"])
+        response = (client or BaoStockClient()).query("calendar", start_date=start.isoformat(), end_date=requested_date.isoformat())
+        output.update(response=response, network_query_performed=True, cache_rejections=[], validation_error=None)
+        output.pop("cache_conflict", None)
+        selected = response
+        try:
+            days = _verified_rows(response)
+            if requested_date not in days:
+                raise ValueError("响应未覆盖目标日期")
+            packet = {"schema_version": "f1-calendar-cache-v1", "provider": "baostock", "mode": mode,
+                      "first_seen_at": response["fetched_at"], "response": response}
+            packet["content_hash"] = _digest(packet)
+            cache_root.mkdir(parents=True, exist_ok=True)
+            cache_path = cache_root / f"{start}_{requested_date}_{packet['content_hash']}.json"
+            if not cache_path.exists():
+                with cache_path.open("x", encoding="utf-8") as stream:
+                    json.dump(packet, stream, ensure_ascii=False, indent=2)
+                    stream.write("\n")
+            output["cache_path"] = str(cache_path)
+        except (ValueError, KeyError, TypeError) as exc:
+            output["validation_error"] = str(exc)
+            # Keep the existing post-failure lookup: another process may have
+            # published a verified packet while this request was in flight.
+            selected, days = _cached_calendar(cache_root, requested_date, mode, output)
     if requested_date in days:
         trading = days[requested_date]
         output.update(calendar_verified=True, status="verified" if trading else "non_trading_day",

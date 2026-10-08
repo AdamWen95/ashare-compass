@@ -143,11 +143,18 @@ def test_bse_distinct_conversion_batches_keep_distinct_effective_dates(tmp_path)
         assert store.resolve_alias("bse", "BSE", "OFFLINE-new-bulk", "2025-05-06") is None
 
 
-def test_actual_f11_service_uses_exchange_metadata_with_isolated_test_provenance(tmp_path):
+@pytest.mark.parametrize("max_attempts", [1, 2])
+def test_actual_f11_service_uses_exchange_metadata_with_isolated_test_provenance(tmp_path, monkeypatch, max_attempts):
     from test_f11_exchange_universe import sse_body, sse_raw, szse_body, szse_raw, response
+    import ashare_daily.providers.exchange_universe as exchange_module
+    original_discover = exchange_module.discover_exchange_lists
+    def discover_with_budget(**kwargs):
+        assert kwargs["max_attempts"] == max_attempts
+        return original_discover(**kwargs)
+    monkeypatch.setattr(exchange_module, "discover_exchange_lists", discover_with_budget)
     config = json.loads((ROOT / "config/universe_f11.json").read_text(encoding="utf-8"))
     config.update(database="data/offline/universe.sqlite3", output_directory="outputs/offline",
-                  calendar_cache="data/offline/calendar", exchange_metadata_cache=None)
+                  calendar_cache="data/offline/calendar", exchange_metadata_cache=None, max_attempts=max_attempts)
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     calls = []

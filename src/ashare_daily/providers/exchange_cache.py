@@ -16,11 +16,12 @@ from ashare_daily.providers.exchange_universe import SSE_METADATA_ENDPOINT, Webs
 
 class CachedWebsiteTransport:
     def __init__(self, directory: Path, *, cache_root: Path, timeout_seconds=20,
-                 environment_label="local_windows_cli"):
+                 environment_label="local_windows_cli", max_attempts=1, deadline_monotonic=None):
         self.directory = Path(directory)
         self.cache_root = Path(cache_root)
         self.fetch = WebsiteTransport(directory, timeout_seconds=timeout_seconds,
-                                      environment_label=environment_label)
+                                      environment_label=environment_label, max_attempts=max_attempts,
+                                      deadline_monotonic=deadline_monotonic)
 
     def __call__(self, endpoint: str, params: dict, *, label: str, target: date) -> dict:
         eligible = (endpoint == SSE_METADATA_ENDPOINT and

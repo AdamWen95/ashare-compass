@@ -41,14 +41,35 @@ class CalendarClient:
         return response
 
 
-def test_verified_calendar_saved_and_network_10002007_uses_covering_cache(tmp_path):
+def test_verified_covering_cache_is_reused_without_another_network_query(tmp_path):
     current = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient())
-    cached = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient(fail=True))
+    before = {path.name: path.read_bytes() for path in tmp_path.glob("*.json")}
+    client = CalendarClient(fail=True)
+    cached = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=client)
+    assert client.calls == []
     assert current["calendar_verified"] and not current["cached"]
+    assert current["network_query_performed"] is True
     assert cached["calendar_verified"] and cached["cached"]
-    assert cached["response"]["error_code"] == "10002007"
+    assert cached["response"] == {}
+    assert cached["network_query_performed"] is False
     assert cached["resolved_trade_date"] == TARGET.isoformat()
     assert cached["source_response_hash"] == current["source_response_hash"]
+    assert cached["source_fetched_at"] == current["source_fetched_at"]
+    assert cached["source_range"] == current["source_range"]
+    assert {path.name: path.read_bytes() for path in tmp_path.glob("*.json")} == before
+
+
+def test_verified_closed_cache_does_not_query_or_shift_the_requested_date(tmp_path):
+    resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient(closed=True))
+    client = CalendarClient()
+    result = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=client)
+    assert client.calls == []
+    assert result["status"] == "non_trading_day"
+    assert result["calendar_verified"] is True
+    assert result["resolved_trade_date"] is None
+    assert result["requested_date"] == TARGET.isoformat()
+    assert result["response"] == {}
+    assert result["network_query_performed"] is False
 
 
 @pytest.mark.parametrize("target", [date(2026, 9, 12), date(2026, 10, 1)])
@@ -70,8 +91,12 @@ def test_unknown_empty_or_incomplete_calendar_never_becomes_closed(tmp_path, cli
 
 def test_out_of_range_cache_is_not_extended_by_weekday_rules(tmp_path):
     resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient())
-    result = resolve_calendar(TARGET + timedelta(days=1), tmp_path, mode="offline_test", client=CalendarClient(fail=True))
+    client = CalendarClient(fail=True)
+    result = resolve_calendar(TARGET + timedelta(days=1), tmp_path, mode="offline_test", client=client)
     assert result["status"] == "calendar_unverified"
+    assert client.calls == [("calendar", {"start_date": "2026-08-03", "end_date": "2026-09-12"})]
+    assert result["network_query_performed"] is True
+    assert result["response"]["error_code"] == "10002007"
 
 
 def test_modified_cache_rejected_without_rewriting_original(tmp_path):
@@ -81,6 +106,22 @@ def test_modified_cache_rejected_without_rewriting_original(tmp_path):
     result = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient(fail=True))
     assert result["status"] == "calendar_unverified"
     assert result["cache_rejections"]
+
+
+def test_rejected_cache_diagnostics_survive_a_verified_network_response(tmp_path):
+    resolve_calendar(TARGET, tmp_path, mode="offline_test", client=CalendarClient())
+    path = next(tmp_path.glob("*.json"))
+    path.write_text(path.read_text(encoding="utf-8").replace('"is_trading_day": "1"', '"is_trading_day": "0"'), encoding="utf-8")
+    damaged = path.read_bytes()
+    client = CalendarClient()
+    result = resolve_calendar(TARGET, tmp_path, mode="offline_test", client=client)
+    assert result["calendar_verified"] is True
+    assert result["cached"] is False
+    assert len(client.calls) == 1
+    rejections = result.get("cache_precheck_rejections", [])
+    assert [row["path"] for row in rejections] == [str(path)]
+    assert "哈希" in rejections[0]["reason"]
+    assert path.read_bytes() == damaged
 
 
 def test_datetime_must_be_resolved_in_shanghai_before_calling(tmp_path):
@@ -124,6 +165,7 @@ def test_verified_legacy_calendar_is_reused_read_only_and_corrupt_row_blocked(tm
     assert result["calendar_verified"] and result["cached"]
     assert result["source_kind"] == "legacy_sqlite_calendar_row"
     assert result["response"]["error_code"] == "10002007"
+    assert result["network_query_performed"] is True
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE trading_calendar SET is_trading_day=0")
@@ -173,6 +215,19 @@ def test_same_time_conflicting_calendar_revisions_remain_blocked(tmp_path):
     assert result["calendar_verified"] is False
     assert result["cache_conflict"] is True
     assert len(result["cache_rejections"]) == 2
+
+
+def test_new_verified_response_resolves_conflicting_cached_revisions(tmp_path):
+    for name, closed in (("aaa", True), ("zzz", False)):
+        _write_cache(tmp_path / f"{name}.json", fetched_at="2026-09-10T10:00:00+08:00", closed=closed)
+    client = CalendarClient(closed=True)
+    result = resolve_calendar(TARGET, tmp_path, client=client, mode="offline_test")
+    assert len(client.calls) == 1
+    assert result["status"] == "non_trading_day"
+    assert result["calendar_verified"] is True
+    assert result["cached"] is False
+    assert result["network_query_performed"] is True
+    assert not result.get("cache_conflict")
 
 
 def test_future_source_timestamp_is_not_a_valid_calendar_cache(tmp_path):

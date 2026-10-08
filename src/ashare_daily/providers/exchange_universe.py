@@ -51,11 +51,17 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class WebsiteTransport:
-    """Anonymous HTTPS only; no credentials, TLS bypass, proxy rotation or retry."""
+    """Anonymous HTTPS with bounded recovery of transient connection failures."""
     def __init__(self, directory: Path, *, timeout_seconds: int = 20,
-                 environment_label: str = "current_execution_environment", spacing_seconds: float = 0.5):
+                 environment_label: str = "current_execution_environment", spacing_seconds: float = 0.5,
+                 max_attempts: int = 1, deadline_monotonic: float | None = None):
         if not 1 <= timeout_seconds <= 60 or spacing_seconds < 0.5:
             raise ValueError("bounded timeout and low-frequency spacing are required")
+        if type(max_attempts) is not int or not 1 <= max_attempts <= 2:
+            raise ValueError("website requests allow one or two attempts")
+        self.max_attempts = max_attempts
+        self.deadline = deadline_monotonic
+        self.extra_requests = 0
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout_seconds
@@ -73,23 +79,53 @@ class WebsiteTransport:
         if host in self.stopped_hosts:
             return {"ok": False, "status": "source_stopped", "error": "earlier_access_denied_or_rate_limited",
                     "fetched_at": datetime.now(TZ).isoformat(), "params": params}
-        self.count += 1
-        identifier = f"{self.count:05d}-{label}"
+        if self.deadline is not None and max(time.monotonic(), self.last_request + self.spacing) >= self.deadline:
+            return {"ok": False, "status": "discovery_elapsed_budget_reached", "attempts": 0,
+                    "fetched_at": datetime.now(TZ).isoformat(), "params": params}
+        prior = []
+        for attempt in range(1, self.max_attempts + 1):
+            result = self._attempt(endpoint, params, label=label, target=target,
+                                   attempt=attempt, prior=prior)
+            # One page may recover once; no run may add more than three requests.
+            # HTTP rejection, rate limits, TLS and schema failures are not retried.
+            if (not result.get("retryable") or attempt == self.max_attempts or self.extra_requests >= 3):
+                return result
+            wait = max(1.0, self.spacing)
+            if self.deadline is not None and time.monotonic() + wait >= self.deadline:
+                return result
+            prior.append({k: v for k, v in result.items() if k not in {"body", "prior_attempts"}})
+            time.sleep(wait)
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                return result
+        return result
+
+    def _attempt(self, endpoint: str, params: dict, *, label: str, target: date,
+                 attempt: int, prior: list[dict]) -> dict:
+        host = urlsplit(endpoint).hostname
         url = endpoint + "?" + urlencode(params)
         wait = self.spacing - (time.monotonic() - self.last_request)
         if wait > 0:
             time.sleep(wait)
         started = time.monotonic()
+        if self.deadline is not None and started >= self.deadline:
+            return {"ok": False, "status": "discovery_elapsed_budget_reached", "attempts": attempt - 1,
+                    "prior_attempts": list(prior), "fetched_at": datetime.now(TZ).isoformat(), "params": params}
+        self.count += 1
+        if attempt > 1:
+            self.extra_requests += 1
+        identifier = f"{self.count:05d}-{label}"
         result = {"ok": False, "url": url, "params": params, "target_date": target.isoformat(),
                   "fetched_at": datetime.now(TZ).isoformat(), "environment_label": self.environment_label,
                   "verification_kind": "live_network", "provenance_mode": "online",
-                  "login": "not_required_anonymous", "attempts": 1,
+                  "login": "not_required_anonymous", "attempts": attempt,
+                  "prior_attempts": list(prior), "retryable": False,
                   "access_method": "official_website_component_not_public_api"}
         raw = b""
         try:
             request = Request(url, headers={"Referer": SSE_PAGE if "sse.com.cn" in host else SZSE_PAGE,
                                            "User-Agent": "ashare-daily-research/0.5 local-noncommercial"})
-            with self.opener.open(request, timeout=self.timeout) as response:
+            timeout = self.timeout if self.deadline is None else min(self.timeout, max(0.001, self.deadline - started))
+            with self.opener.open(request, timeout=timeout) as response:
                 result["http_status"] = response.status
                 result["content_type"] = response.headers.get("Content-Type")
                 result["source_http_date"] = response.headers.get("Date")
@@ -102,12 +138,19 @@ class WebsiteTransport:
         except HTTPError as exc:
             result.update(http_status=exc.code, status="access_denied" if exc.code in {401, 403} else
                           "rate_limited" if exc.code == 429 else "http_error", error=str(exc))
-            raw = exc.read(4_000_001)
             if exc.code in {401, 403, 429}:
                 # SSE's two paths are the same host, so a stop applies to both.
                 self.stopped_hosts.add(host)
+            try:
+                raw = exc.read(4_000_001)
+            except (TimeoutError, OSError):
+                pass  # Preserve the HTTP rejection even if its body cannot be read.
+            finally:
+                exc.close()
         except (TimeoutError, URLError, ssl.SSLError, OSError) as exc:
-            result.update(status="network_error", error=f"{type(exc).__name__}:{exc}")
+            reason = exc.reason if isinstance(exc, URLError) else exc
+            result.update(status="network_error", error=f"{type(exc).__name__}:{exc}",
+                          retryable=isinstance(reason, (TimeoutError, ConnectionError)))
         except (ValueError, UnicodeError) as exc:
             result.update(status="schema_error", error=f"{type(exc).__name__}:{exc}")
         finally:
@@ -244,7 +287,8 @@ def discover_exchange_lists(*, target: date, directory: Path, permissions: dict,
                             environment_label: str = "current_execution_environment",
                             transport: Callable | None = None,
                             enrich_star: bool = True, cache_directory: Path | None = None,
-                            max_elapsed_seconds: int = 900, scope: str = "all_a") -> tuple[list, list, list]:
+                            max_elapsed_seconds: int = 900, scope: str = "all_a",
+                            max_attempts: int = 1) -> tuple[list, list, list]:
     """Return existing universe pages/manifests/requests; never another stock pool.
 
     permissions maps SSE/SZSE/BSE to enabled/permission_status/access_status.
@@ -263,20 +307,24 @@ def discover_exchange_lists(*, target: date, directory: Path, permissions: dict,
         raise ValueError("offline mode must not use the real network")
     if not 1 <= max_elapsed_seconds <= 1800:
         raise ValueError("discovery requires a bounded elapsed-time budget")
+    if type(max_attempts) is not int or not 1 <= max_attempts <= 2:
+        raise ValueError("website requests allow one or two attempts")
     if mode == "offline_test" and cache_directory is not None:
         raise ValueError("test transports cannot populate live metadata caches")
     directory.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
     if transport is not None:
         fetch = transport
     elif cache_directory is not None:
         from ashare_daily.providers.exchange_cache import CachedWebsiteTransport
         fetch = CachedWebsiteTransport(directory / "requests", cache_root=cache_directory,
-                                       timeout_seconds=timeout_seconds, environment_label=environment_label)
+                                       timeout_seconds=timeout_seconds, environment_label=environment_label,
+                                       max_attempts=max_attempts, deadline_monotonic=started + max_elapsed_seconds)
     else:
         fetch = WebsiteTransport(directory / "requests", timeout_seconds=timeout_seconds,
-                                 environment_label=environment_label)
+                                 environment_label=environment_label, max_attempts=max_attempts,
+                                 deadline_monotonic=started + max_elapsed_seconds)
     pages, manifests, requests = [], [], []
-    started = time.monotonic()
     for exchange, dataset, stock_type, coverage in [
         ("SSE", "main_a", "1", ["sse_main"]), ("SSE", "star", "8", ["star"]),
         ("SZSE", "a_shares", None, ["szse_main", "chinext"]), ("BSE", "listed_shares", None, ["bse"]),
