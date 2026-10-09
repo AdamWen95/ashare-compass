@@ -10,6 +10,7 @@
   "database": "data/research/universe.sqlite3",
   "output_directory": "outputs/research/sse_szse_a/universe",
   "calendar_cache": "data/research/f1_calendar",
+  "calendar_provider": "exchange_calendars",
   "timeout_seconds": 20,
   "max_attempts": 2,
   "sources": [

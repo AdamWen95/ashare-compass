@@ -73,6 +73,7 @@ class UniverseConfig(BaseModel):
     database: str
     output_directory: str
     calendar_cache: str
+    calendar_provider: Literal["baostock", "exchange_calendars"] = "baostock"
     legacy_market_database: str | None = "data/research/market.sqlite3"
     exchange_metadata_cache: str | None = None
     timeout_seconds: int = Field(ge=1, le=60)
@@ -224,11 +225,12 @@ def sync_date(*, project: Path, config_path: str | Path, target: date,
     permitted = next((s for s in config.sources if s.provider == "baostock" and s.enabled), None)
     exchanges = next((s for s in config.sources if s.provider == "exchange_lists" and s.enabled), None)
     pages, manifests, requests = [], [], []
-    if permitted:
+    if permitted or config.calendar_provider == "exchange_calendars":
         client = client or BaoStockClient(config.timeout_seconds, config.max_attempts)
         calendar = (calendar_resolver or resolve_calendar)(requested_date=target,
             cache_root=local_path(project, config.calendar_cache), client=client,
             mode="offline_test" if offline_test else "research",
+            provider=config.calendar_provider,
             legacy_database=local_path(project, config.legacy_market_database) if config.legacy_market_database and not offline_test else None)
     else:
         calendar = {"status": "calendar_unverified", "calendar_verified": False,

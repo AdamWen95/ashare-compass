@@ -12,7 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from ..calendar import _digest, _verified_rows
+from ..calendar import _digest, verify_calendar_packet
 from ..market_foundation import _hash, normalize_baostock_rows
 from ..operations.backup import _io
 from ..operations.paths import resolve_archived_path
@@ -177,10 +177,9 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path):
     if not isinstance(cal.get("source_file_hash"), str) or len(cal["source_file_hash"]) != 64:
         raise ValueError("status_calendar_expected_hash_missing")
     packet, _, _ = _read(root, cal.get("source_path"), refs, cal.get("source_file_hash"))
-    if (packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("mode") != mode
-            or packet.get("provider") != "baostock" or packet.get("content_hash") != _digest({k: v for k, v in packet.items() if k != "content_hash"})
-            or packet.get("response", {}).get("raw_hash") != cal.get("source_raw_hash")
-            or _verified_rows(packet["response"]).get(date.fromisoformat(target)) is not True):
+    metadata, days = verify_calendar_packet(packet, mode=mode)
+    if (metadata["raw_hash"] != cal.get("source_raw_hash")
+            or days.get(date.fromisoformat(target)) is not True):
         raise ValueError("status_calendar_evidence_invalid")
     members, rows = {}, {}
     for member in universe.get("members", []):

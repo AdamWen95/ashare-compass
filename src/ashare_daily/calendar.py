@@ -38,6 +38,21 @@ def _verified_rows(response: dict[str, Any]) -> dict[date, bool]:
     return {day.calendar_date: day.is_trading_day for day in days}
 
 
+def verify_calendar_packet(packet: dict, *, mode: str) -> tuple[dict, dict[date, bool]]:
+    """Read each frozen source under its own contract; never relabel a provider."""
+    if not isinstance(packet, dict) or mode not in {"research", "offline_test"}:
+        raise ValueError("日历包格式或模式无效")
+    if packet.get("schema_version") == "exchange-calendar-cache-v1":
+        from .providers.exchange_calendar import verify_packet
+        return verify_packet(packet, mode=mode)
+    if (packet.get("content_hash") != _digest({k:v for k,v in packet.items() if k != "content_hash"})
+            or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock"
+            or packet.get("mode") != mode or packet.get("first_seen_at") != packet["response"]["fetched_at"]):
+        raise ValueError("缓存来源/模式/哈希或首次观察时间无效")
+    response = packet["response"]
+    return dict(response, provider="baostock"), _verified_rows(response)
+
+
 def _legacy_calendar(database: Path, requested_date: date, mode: str) -> dict[str, Any] | None:
     """Read one existing M1 calendar date without migrating or writing its DB."""
     with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as connection:
@@ -63,24 +78,30 @@ def _legacy_calendar(database: Path, requested_date: date, mode: str) -> dict[st
 
 
 def _cached_calendar(cache_root: Path, requested_date: date, mode: str,
-                     output: dict[str, Any]) -> tuple[dict[str, Any], dict[date, bool]]:
+                     output: dict[str, Any], preferred_provider: str = "baostock") -> tuple[dict[str, Any], dict[date, bool]]:
     candidates = []
     for path in cache_root.glob("*.json"):
         try:
             packet = json.loads(path.read_text(encoding="utf-8"))
-            signature = packet.pop("content_hash")
-            if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode:
-                raise ValueError("缓存来源或版本/哈希无效")
-            candidate = packet["response"]
-            if packet.get("first_seen_at") != candidate["fetched_at"]:
-                raise ValueError("缓存首次观察时间与冻结源响应不一致")
-            candidate_days = _verified_rows(candidate)
+            candidate, candidate_days = verify_calendar_packet(packet, mode=mode)
             if requested_date not in candidate_days:
                 continue
             candidates.append((datetime.fromisoformat(candidate["fetched_at"]), str(path), candidate, candidate_days))
         except (ValueError, KeyError, TypeError, OSError) as cache_error:
             output["cache_rejections"].append({"path": str(path), "reason": str(cache_error)})
     if candidates:
+        providers = {item[2]["provider"] for item in candidates}
+        latest_by_provider = {provider: max(item[0] for item in candidates if item[2]["provider"] == provider)
+                              for provider in providers}
+        current = [item for item in candidates if item[0] == latest_by_provider[item[2]["provider"]]]
+        if len({item[3][requested_date] for item in current}) > 1 and len(providers) > 1:
+            output.update(cache_conflict=True, cache_source_conflict=True,
+                          validation_error="calendar_source_conflict: 不同来源的目标交易日状态矛盾")
+            return {}, {}
+        preferred = [item for item in candidates if item[2]["provider"] == preferred_provider]
+        if not preferred:
+            return {}, {}
+        candidates = preferred
         latest_stamp = max(item[0] for item in candidates)
         newest = [item for item in candidates if item[0] == latest_stamp]
         # A same-time revision conflict is not resolved by filename or
@@ -104,7 +125,8 @@ def _cached_calendar(cache_root: Path, requested_date: date, mode: str,
 
 
 def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = None,
-                     legacy_database: Path | None = None, mode: str = "research") -> dict[str, Any]:
+                     legacy_database: Path | None = None, mode: str = "research",
+                     provider: str = "baostock") -> dict[str, Any]:
     """Use verified cache, otherwise fetch the 40-day range ending at requested_date.
 
     Cache has a source response hash and an envelope hash; only a complete
@@ -116,6 +138,8 @@ def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = No
     cache_root = Path(cache_root)
     if mode not in {"research", "offline_test"}:
         raise ValueError("日历模式只允许 research 或 offline_test")
+    if provider not in {"baostock", "exchange_calendars"}:
+        raise ValueError("日历来源未注册")
     if client is not None and not isinstance(client, BaoStockClient) and mode != "offline_test":
         raise ValueError("注入日历客户端必须显式标记 offline_test")
     if mode == "offline_test" and "research" in {part.casefold() for part in cache_root.parts}:
@@ -125,15 +149,26 @@ def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = No
     output: dict[str, Any] = {
         "status": "calendar_unverified", "calendar_verified": False,
         "requested_date": requested_date.isoformat(), "resolved_trade_date": None,
-        "started_at": started_at, "completed_at": None, "provider": "baostock",
+        "started_at": started_at, "completed_at": None, "provider": provider,
         "cached": False, "cache_path": None, "response": {}, "network_query_performed": False,
         "cache_rejections": [], "validation_error": None,
-        "verification_kind": "online" if mode == "research" else "offline_test",
+        "verification_kind": ("versioned_local_calendar" if provider == "exchange_calendars" else "online")
+                             if mode == "research" else "offline_test",
     }
     # Repeated daily attempts can reuse the already verified target without
     # spending the provider's bounded query/retry budget again.
-    selected, days = _cached_calendar(cache_root, requested_date, mode, output)
-    if requested_date not in days:
+    if provider == "exchange_calendars":
+        try:
+            from .providers.exchange_calendar import ensure_packet
+            ensure_packet(requested_date, cache_root, mode=mode)
+        except (ValueError, KeyError, TypeError, OSError, ImportError) as exc:
+            output.update(validation_error=str(exc), completed_at=datetime.now(SHANGHAI).isoformat())
+            return output
+    selected, days = _cached_calendar(cache_root, requested_date, mode, output, provider)
+    if output.get("cache_source_conflict"):
+        output["completed_at"] = datetime.now(SHANGHAI).isoformat()
+        return output
+    if requested_date not in days and provider == "baostock":
         if output["cache_rejections"]:
             output["cache_precheck_rejections"] = list(output["cache_rejections"])
         response = (client or BaoStockClient()).query("calendar", start_date=start.isoformat(), end_date=requested_date.isoformat())
@@ -154,6 +189,13 @@ def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = No
                     json.dump(packet, stream, ensure_ascii=False, indent=2)
                     stream.write("\n")
             output["cache_path"] = str(cache_path)
+            # A newly fetched response must not silently override an independent
+            # reviewed source. Keep both frozen versions and report disagreement.
+            check = {"cache_rejections": []}
+            _cached_calendar(cache_root, requested_date, mode, check, provider)
+            if check.get("cache_source_conflict"):
+                output.update(check, completed_at=datetime.now(SHANGHAI).isoformat())
+                return output
         except (ValueError, KeyError, TypeError) as exc:
             output["validation_error"] = str(exc)
             # Keep the existing post-failure lookup: another process may have
@@ -165,7 +207,7 @@ def resolve_calendar(requested_date: date, cache_root: Path, *, client: Any = No
                       resolved_trade_date=requested_date.isoformat() if trading else None,
                       source_response_hash=selected["raw_hash"], source_fetched_at=selected["fetched_at"],
                       source_range=selected["parameters"], calendar_days={key.isoformat(): value for key, value in days.items()})
-    elif not output.get("cache_conflict") and legacy_database is not None and Path(legacy_database).is_file():
+    elif provider == "baostock" and not output.get("cache_conflict") and legacy_database is not None and Path(legacy_database).is_file():
         try:
             legacy = _legacy_calendar(Path(legacy_database), requested_date, mode)
             if legacy is not None:

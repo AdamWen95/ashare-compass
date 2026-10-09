@@ -7,6 +7,7 @@
 | 来源或能力 | 仓库入口 | 使用说明 |
 | --- | --- | --- |
 | BaoStock | `providers/baostock*.py`、`financial_review.py` | 用于日历、基础资料、日线及可选财务补充；保留字段、日期和复权检查 |
+| 本地交易所日历 | `providers/exchange_calendar.py`、名单配置 `calendar_provider` | 固定 `exchange-calendars==4.13.2` 的 XSHG 规则，经交易所公告核验；当前观察配置使用它确认沪深交易日期，无在线日历请求；不是 BaoStock 或交易所实时 API 响应 |
 | 沪深交易所公开名单 | `providers/exchange_universe.py`、`config/sse_szse_universe.json` | 校验板块、证券身份和观察日期；当前名单不能冒充历史名单 |
 | 行业分类 | `providers/exchange_industry.py`、`config/sector_first.json` | 从名单字段形成版本化分类，不等同于所有供应商行业或概念体系 |
 | 新浪网页数据 | `providers/sina_*.py`、`config/sector_first.json` | 网页来源，不称为对外授权的官方免费 API；部分历史解码需要 Node.js |
@@ -15,6 +16,8 @@
 | 外部模型 | `research/model_settings.py`、本机 `.env` | 可选 Chat Completions 文本 JSON 路径；服务能力需单独验证 |
 
 BaoStock 的实现约定见 [BaoStock 接入说明](09_BAOSTOCK_VERIFICATION.md)。Node.js 的安装工具为 `scripts/install_node_runtime.py`，其版本、下载地址和哈希保存在 `config/node_runtime.json`；它不是离线 Demo 的依赖。
+
+本地日历已核验范围为 2024-01-01 至 2026-12-31，核对日期 2026-10-09。库版本、日历源码哈希、年度休市公告链接、首次观察时间和完整自然日状态保存在独立的 `exchange-calendar-cache-v1` 包中。范围外返回未知，不以工作日外推；出现新的临时休市公告时须核对并更新受审版本，不能等到年底才处理。完整依据、旧缓存兼容和恢复方式见 [本地交易日历决策](LOCAL_CALENDAR_ADR.md)。
 
 ## 配置不是通用授权
 

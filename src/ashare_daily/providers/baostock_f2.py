@@ -19,7 +19,7 @@ import threading
 import time
 from typing import Any
 
-from ashare_daily.calendar import _digest, _verified_rows
+from ashare_daily.calendar import _digest, _verified_rows, verify_calendar_packet
 from .baostock import BaoStockClient, MAX_LOG_CHARS, SHANGHAI, base_result, clean_log, parse_progress, validate_request
 from .baostock_worker import BoundedSDKLog, execute_request
 
@@ -210,31 +210,32 @@ def resolve_history_calendar(target: date, cache_root: Path, *, history_days: in
     packets: list[tuple[datetime, str, dict, dict]] = []
     source = client or BaoStockClient()
 
-    def add(response: dict, path: str) -> None:
-        days = _verified_rows(response)
-        packets.append((datetime.fromisoformat(response["fetched_at"]), path, response, days))
-
     for directory in cache_roots:
         for path in sorted(directory.glob("*.json")):
             try:
                 packet = json.loads(path.read_text(encoding="utf-8"))
-                signature = packet.pop("content_hash")
-                if signature != _digest(packet) or packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("provider") != "baostock" or packet.get("mode") != mode or packet.get("first_seen_at") != packet["response"]["fetched_at"]:
-                    raise ValueError("缓存来源/模式/哈希无效")
-                add(packet["response"], str(path))
+                metadata, days = verify_calendar_packet(packet, mode=mode)
+                packets.append((datetime.fromisoformat(metadata["fetched_at"]), str(path), metadata, days))
             except (ValueError, KeyError, TypeError, OSError) as exc:
                 output["cache_rejections"].append({"path": str(path), "reason": str(exc)})
 
     def combined():
-        selected = {}
-        for stamp, _, _, days in packets:
+        providers = {}
+        for stamp, _, metadata, days in packets:
+            selected = providers.setdefault(metadata["provider"], {})
             for day, value in days.items():
                 previous = selected.get(day)
                 if previous and previous[0] == stamp and previous[1] != value:
                     raise ValueError("同一来源获取时间的日历缓存冲突")
                 if not previous or stamp > previous[0]:
                     selected[day] = (stamp, value)
-        return {day: value for day, (_, value) in selected.items()}
+        combined_days = {}
+        for selected in providers.values():
+            for day, (_, value) in selected.items():
+                if day in combined_days and combined_days[day] != value:
+                    raise ValueError("不同来源的日历缓存冲突")
+                combined_days[day] = value
+        return combined_days
 
     def chosen(days):
         trading = sorted(day for day, value in days.items() if value and day <= target)
@@ -268,7 +269,9 @@ def resolve_history_calendar(target: date, cache_root: Path, *, history_days: in
                     json.dump(packet, stream, ensure_ascii=False, indent=2)
                     stream.write("\n")
             record["path"] = str(path)
-            packets.append((datetime.fromisoformat(response["fetched_at"]), str(path), response, verified))
+            metadata = {key: response[key] for key in ("fetched_at", "raw_hash", "parameters")}
+            packets.append((datetime.fromisoformat(response["fetched_at"]), str(path),
+                {"provider": "baostock", **metadata}, verified))
             days = combined()
             if days.get(target) is False:
                 output["status"] = "non_trading_day"
@@ -282,8 +285,15 @@ def resolve_history_calendar(target: date, cache_root: Path, *, history_days: in
             output["status"] = "non_trading_day"
         else:
             output["validation_error"] = "可信日历范围不足，无法确认所需交易日窗口；没有使用工作日推测"
-        output["source_metadata"] = [{"path": path, "raw_hash": response["raw_hash"], "fetched_at": response["fetched_at"], "parameters": response["parameters"]}
-                                     for _, path, response, packet_days in packets if any(day in packet_days for day in (window or [target]))]
+        window_start = window[0] if window else target
+        output["source_metadata"] = [{"path": path, **metadata}
+            for _, path, metadata, packet_days in packets if any(window_start <= day <= target for day in packet_days)]
+        if mode == "research":
+            providers = {metadata["provider"] for metadata in output["source_metadata"]}
+            if providers == {"exchange_calendars"}:
+                output["verification_kind"] = "versioned_local_calendar"
+            elif len(providers) > 1:
+                output["verification_kind"] = "mixed_calendar_evidence"
     except (ValueError, KeyError, TypeError, OSError) as exc:
         output["validation_error"] = str(exc)
     output["completed_at"] = datetime.now(SHANGHAI).isoformat()

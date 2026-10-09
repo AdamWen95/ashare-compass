@@ -15,6 +15,8 @@
 
 `operations/observation.py` 协调当前日观察流程，入口配置为 `config/sector_observation_daily.json`。`cli.py` 还保留早期演示、样本与全市场命令，调用时应显式选择配置和用途。
 
+日期确认与行情采集独立：当前观察配置用固定版本的本地交易所日历，统一冻结包验证器贯通 F1、历史窗口、基准指数和资格补证；行情适配器仍验证自身来源。旧 BaoStock 日历包继续按原契约读取，跨来源状态冲突阻断。见 [ADR：本地交易日历](LOCAL_CALENDAR_ADR.md)。
+
 ## 目录
 
 | 路径 | 作用 |

@@ -60,7 +60,8 @@ def fixture(tmp_path):
     calresponse.update(ok=True, status="ok", error_code="0", fields=bs.CALENDAR_FIELDS, rows=rows,
         fetched_at=STAMP, raw_hash=bs.raw_hash(bs.CALENDAR_FIELDS, rows),
         login=dict(ok=True, error_code="0", error_msg="success"))
-    calendar = dict(schema_version="f1-calendar-cache-v1", provider="baostock", mode="offline_test", response=calresponse)
+    calendar = dict(schema_version="f1-calendar-cache-v1", provider="baostock", mode="offline_test",
+        first_seen_at=calresponse["fetched_at"], response=calresponse)
     calendar["content_hash"] = _digest(calendar)
     calpath = folder / "calendar.json"
     calhash = write(calpath, calendar)

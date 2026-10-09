@@ -4,3 +4,7 @@
 setuptools==80.9.0
 pip==26.2
 
+# Pin exchange-calendars transitive additions without upgrading existing packages.
+korean-lunar-calendar==0.3.1
+pyluach==2.3.0
+toolz==1.0.0

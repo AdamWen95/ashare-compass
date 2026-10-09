@@ -11,7 +11,7 @@ from pathlib import Path
 import sqlite3
 import uuid
 
-from .calendar import _digest, _verified_rows
+from .calendar import verify_calendar_packet
 from .market_pipeline import _path, _provider_policy, load_market_config
 from .providers.base import BOARD_EXCHANGES, DailyBarRequest, MarketDataProvider, SecurityIdentity, iso_date
 from .providers.baostock import SHANGHAI
@@ -122,37 +122,44 @@ def _permissions_for_inputs(universe_config) -> None:
 
 def _cached_calendar(root: Path, directories: list[str], target: str) -> dict:
     candidates, rejections = [], []
+    day = iso_date(target)
     for directory in dict.fromkeys(directories):
         for path in sorted(_path(root, directory).glob("*.json")):
             try:
                 path = _path(root, path)
                 packet = json.loads(path.read_text(encoding="utf-8-sig"))
-                body = {key: value for key, value in packet.items() if key != "content_hash"}
-                if (packet.get("schema_version") != "f1-calendar-cache-v1" or packet.get("mode") != "research"
-                        or packet.get("provider") != "baostock" or packet.get("content_hash") != _digest(body)):
-                    raise ValueError("calendar_cache_hash_or_provenance_invalid")
-                response = packet["response"]
-                if packet.get("first_seen_at") != response.get("fetched_at") or any(
-                    key in response and response[key] not in ("online", "live_network")
+                metadata, days = verify_calendar_packet(packet, mode="research")
+                if metadata["provider"] == "baostock" and any(
+                    key in metadata and metadata[key] not in ("online", "live_network")
                     for key in ("provenance_mode", "verification_kind")):
                     raise ValueError("calendar_response_provenance_invalid")
-                days = _verified_rows(response)
-                day = iso_date(target)
                 if day in days:
-                    candidates.append((response["fetched_at"], days[day], path, response))
+                    candidates.append((metadata["fetched_at"], days[day], path, metadata))
             except (ValueError, KeyError, TypeError, OSError) as exc:
                 rejections.append({"path": str(path), "reason": str(exc)})
     if not candidates:
         return {"calendar_verified": False, "calendar": {}, "cache_rejections": rejections}
-    latest = max(datetime.fromisoformat(item[0]) for item in candidates)
-    selected = [item for item in candidates if datetime.fromisoformat(item[0]) == latest]
-    if len({item[1] for item in selected}) != 1:
+    # A revision supersedes older evidence from the same source only. A later
+    # observation by another provider cannot resolve a disagreement in dates.
+    providers = {item[3]["provider"] for item in candidates}
+    latest_by_provider = {provider: max(datetime.fromisoformat(item[0]) for item in candidates
+                                      if item[3]["provider"] == provider) for provider in providers}
+    current = [item for item in candidates
+               if datetime.fromisoformat(item[0]) == latest_by_provider[item[3]["provider"]]]
+    if len({item[1] for item in current}) != 1:
         return {"calendar_verified": False, "calendar": {}, "cache_rejections": rejections,
                 "reason": "calendar_cache_conflict"}
-    stamp, opened, path, response = selected[0]
-    return {"calendar_verified": True, "calendar": {target: opened}, "cache_rejections": rejections,
-            "cached": True, "source_path": str(path), "source_raw_hash": response["raw_hash"],
+    latest = max(datetime.fromisoformat(item[0]) for item in current)
+    stamp, opened, path, metadata = next(item for item in current if datetime.fromisoformat(item[0]) == latest)
+    result = {"calendar_verified": True, "calendar": {target: opened}, "cache_rejections": rejections,
+            "cached": True, "source_path": str(path), "source_raw_hash": metadata["raw_hash"],
             "source_file_hash": hashlib.sha256(path.read_bytes()).hexdigest(), "fetched_at": stamp}
+    # Frozen source-run resumption compares this mapping verbatim. Preserve the
+    # existing BaoStock shape; the newly supported local source needs its label.
+    if metadata["provider"] == "exchange_calendars":
+        result.update(provider=metadata["provider"], source_kind=metadata["source_kind"],
+                      source_version=metadata["source_version"], verification_kind="versioned_local_calendar")
+    return result
 
 
 class _RecordingProvider(MarketDataProvider):
