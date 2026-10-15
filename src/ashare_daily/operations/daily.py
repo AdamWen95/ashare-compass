@@ -37,6 +37,7 @@ class DailyConfig(BaseModel):
     research_mode: Literal["full_market", "sector_first"] = "full_market"
     sector_config: str | None = None
     observation_config: str | None = None
+    premarket_config: str | None = None
     universe_config: str | None = None
     f2_config: str | None = None
     market_config: str | None = "config/m21_100.json"
@@ -64,12 +65,19 @@ class DailyConfig(BaseModel):
         if self.research_mode == "sector_first":
             if self.scope_mode != "sse_szse_a" or not self.sector_config or not self.sector_config.strip():
                 raise ValueError("sector_first requires the SSE/SZSE scope and explicit sector_config")
-            if time.fromisoformat(self.trigger_time) != time(21):
+            if self.workflow_version == "premarket-daily-v1":
+                if (time.fromisoformat(self.trigger_time) != time(8, 30) or not self.premarket_config
+                        or not self.observation_config or self.model_max_retries != 0
+                        or self.model_max_calls_per_run > 2 or self.model_max_calls_per_day > 6):
+                    raise ValueError("premarket requires 08:30, explicit configuration and existing model limits")
+            elif time.fromisoformat(self.trigger_time) != time(21):
                 raise ValueError("sector_first retains the 21:00 Asia/Shanghai cutoff")
         elif self.sector_config is not None:
             raise ValueError("sector_config requires explicit research_mode=sector_first")
         if self.observation_config is not None and self.research_mode != "sector_first":
             raise ValueError("observation_config requires sector_first")
+        if self.premarket_config is not None and (self.workflow_version != "premarket-daily-v1" or self.research_mode != "sector_first"):
+            raise ValueError("premarket_config requires explicit premarket workflow")
         return self
 
 
@@ -413,6 +421,14 @@ def _run_daily(*, project: Path = PROJECT, config_path: str = "config/m4.json", 
         if config.scope_mode == "sample" or not (config.sector_config if config.research_mode == "sector_first" else config.f2_config):
             raise F2RuntimeLimitError("本次配置未启用F2行情，不能指定 --market-max-seconds")
     if config.research_mode == "sector_first":
+        if config.workflow_version == "premarket-daily-v1":
+            if sample_mode or services is not None:
+                raise SectorDailyModeError("生产盘前日报不接受固定样本或测试服务")
+            from ashare_daily.operations.premarket import run_premarket_daily
+            return run_premarket_daily(project=project, config=config, config_path=config_path,
+                target=target, cutoff=cutoff, start=start, now=now, dry_run=dry_run,
+                scheduled=scheduled, planned=planned, max_seconds=f2_max_seconds,
+                skip_model=skip_model, force=force)
         if config.observation_config:
             if sample_mode or services is not None:
                 raise SectorDailyModeError("生产量价日报不接受固定样本或测试服务")

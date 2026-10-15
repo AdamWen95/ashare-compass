@@ -255,7 +255,8 @@ def collect_materials(*, registry_path: str | Path, start: str, cutoff: str,
                       sample_symbols: list[str] | dict, output_dir: str | Path,
                       previous_cutoff: str | None = None, include_background: bool = False,
                       transport: Callable | None = None, sleep: Callable = time.sleep,
-                      max_seconds: float | None = None) -> dict:
+                      max_seconds: float | None = None, pending_cutoff: bool = False,
+                      request_budget=None) -> dict:
     """Read a finite URL manifest; start/cutoff never imply whole-day coverage.
 
     ``previous_cutoff`` supports (previous, cutoff] incremental publication windows.
@@ -275,7 +276,12 @@ def collect_materials(*, registry_path: str | Path, start: str, cutoff: str,
     if start_at >= cutoff_at:
         raise ValueError("资讯起点必须早于截点")
     now = datetime.now(SHANGHAI)
-    if cutoff_at > now:
+    until_cutoff = (cutoff_at - now).total_seconds()
+    if type(pending_cutoff) is not bool:
+        raise ValueError("pending_cutoff_must_be_boolean")
+    if pending_cutoff and (max_seconds is None or not 0 < until_cutoff <= 300 or max_seconds > until_cutoff):
+        raise ValueError("pending_cutoff_requires_bounded_five_minute_window")
+    if cutoff_at > now and not pending_cutoff:
         raise ValueError("资讯截点不能晚于实际采集时间")
     mode = "offline_test" if transport is not None else "automatic"
     out = Path(output_dir).resolve()
@@ -286,6 +292,8 @@ def collect_materials(*, registry_path: str | Path, start: str, cutoff: str,
     raw_dir = out / "responses"
     raw_dir.mkdir()
     get = transport or _http_get
+    if transport is None and request_budget is not None:
+        get = lambda url, timeout: request_budget.get(url, timeout, MAX_RESPONSE_BYTES)
     requests, health, evidence, all_evidence, rejected = [], [], [], [], []
     robots_cache = {}
     stopped_hosts = set()
@@ -313,11 +321,14 @@ def collect_materials(*, registry_path: str | Path, start: str, cutoff: str,
                     raise RuntimeError("source_runtime_limit")
                 sleep(limits["interval_seconds"])
             timeout = min(limits["timeout_seconds"], remaining())
+            if request_budget is not None:
+                request_budget.reserve(source_id, role, url)
             row = {"request_index": len(requests) + 1, "source_id": source_id, "url": url,
                    "role": role, "attempt": attempt, "fetched_at": datetime.now(SHANGHAI).isoformat(),
                    "acquisition_mode": mode}
             try:
                 response = get(url, timeout)
+                row["fetched_at"] = datetime.now(SHANGHAI).isoformat()
                 if len(response.body) > MAX_RESPONSE_BYTES:
                     raise ValueError("响应超出大小限制")
                 path = raw_dir / f"{row['request_index']:03d}-{role}.raw"
@@ -439,6 +450,8 @@ def collect_materials(*, registry_path: str | Path, start: str, cutoff: str,
                     acquisition_mode=mode, security_associations=[])
                 if isinstance(sample_symbols, dict):
                     ev = link_subjects(ev, sample_symbols)
+                if pending_cutoff and aware_time(ev["fetched_at"]) > cutoff_at:
+                    reason = "first_seen_after_cutoff"
                 all_evidence.append(ev)
                 if reason:
                     rejected.append({"source_id": reg["source_id"], "url": page["url"], "reason": reason,

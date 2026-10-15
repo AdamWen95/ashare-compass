@@ -9,6 +9,7 @@
 | BaoStock | `providers/baostock*.py`、`financial_review.py` | 用于日历、基础资料、日线及可选财务补充；保留字段、日期和复权检查 |
 | 本地交易所日历 | `providers/exchange_calendar.py`、名单配置 `calendar_provider` | 固定 `exchange-calendars==4.13.2` 的 XSHG 规则，经交易所公告核验；当前观察配置使用它确认沪深交易日期，无在线日历请求；不是 BaoStock 或交易所实时 API 响应 |
 | 沪深交易所公开名单 | `providers/exchange_universe.py`、`config/sse_szse_universe.json` | 校验板块、证券身份和观察日期；当前名单不能冒充历史名单 |
+| 深交所官方整表导出 | `providers/szse_export.py`、名单配置 `szse_list_format` | 同一官方名单的Excel格式，前后JSON元数据用于总数、日期与行业字典校验；保留三份原始响应，拒绝不完整或冲突证据 |
 | 行业分类 | `providers/exchange_industry.py`、`config/sector_first.json` | 从名单字段形成版本化分类，不等同于所有供应商行业或概念体系 |
 | 新浪网页数据 | `providers/sina_*.py`、`config/sector_first.json` | 网页来源，不称为对外授权的官方免费 API；部分历史解码需要 Node.js |
 | 东方财富适配器 | `providers/eastmoney.py`、`config/sse_szse_market_providers.json` | 可选路径，不能把代码存在当成已完成在线验收或取得使用权 |

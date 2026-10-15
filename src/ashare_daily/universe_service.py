@@ -74,6 +74,7 @@ class UniverseConfig(BaseModel):
     output_directory: str
     calendar_cache: str
     calendar_provider: Literal["baostock", "exchange_calendars"] = "baostock"
+    szse_list_format: Literal["json_pages", "xlsx_export"] = "json_pages"
     legacy_market_database: str | None = "data/research/market.sqlite3"
     exchange_metadata_cache: str | None = None
     timeout_seconds: int = Field(ge=1, le=60)
@@ -198,7 +199,8 @@ def discover_baostock(client, *, target: date, directory: Path, mode: str = "onl
 
 def sync_date(*, project: Path, config_path: str | Path, target: date,
               cutoff_at: str | None = None, now: datetime | None = None,
-              client=None, calendar_resolver=None, exchange_transport=None, offline_test: bool = False) -> dict:
+              client=None, calendar_resolver=None, exchange_transport=None, offline_test: bool = False,
+              max_seconds: float | None = None) -> dict:
     """Caller holds the existing daily lock. Test injection requires isolated mode."""
     from ashare_daily.calendar import resolve_calendar
     from ashare_daily.providers.baostock import BaoStockClient
@@ -207,6 +209,8 @@ def sync_date(*, project: Path, config_path: str | Path, target: date,
     if (client is not None or calendar_resolver is not None or exchange_transport is not None) and not offline_test:
         raise ValueError("注入服务仅用于显式 offline_test，不能产生真实名单验收")
     config = load_universe_config(project, config_path)
+    if max_seconds is not None and (type(max_seconds) not in {int, float} or not 1 <= max_seconds <= 900):
+        raise ValueError("universe_runtime_limit_invalid")
     now = now or datetime.now(SHANGHAI)
     if now.tzinfo is None:
         raise ValueError("运行时间必须含时区")
@@ -246,7 +250,8 @@ def sync_date(*, project: Path, config_path: str | Path, target: date,
                 timeout_seconds=config.timeout_seconds, mode="offline_test" if offline_test else "online",
                 environment_label="local_windows_cli", transport=exchange_transport,
                 cache_directory=local_path(project, config.exchange_metadata_cache) if config.exchange_metadata_cache and not offline_test else None,
-                scope=config.scope, max_attempts=config.max_attempts)
+                scope=config.scope, max_attempts=config.max_attempts, szse_list_format=config.szse_list_format,
+                **({"max_elapsed_seconds": max_seconds} if max_seconds is not None else {}))
         elif permitted and not source_stopped:
             pages, manifests, requests = discover_baostock(client, target=target, directory=directory,
                 mode="offline_test" if offline_test else "online")

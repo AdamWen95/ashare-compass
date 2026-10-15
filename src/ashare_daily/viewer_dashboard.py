@@ -131,8 +131,9 @@ SIDEBAR_BRAND = ('<div class="brief-brand"><span class="brief-brand-mark" aria-h
         '<div><strong>方向研究室</strong><small>DAILY RESEARCH</small></div></div>')
 
 
-def render_masthead(st):
-    st.markdown(MASTHEAD, unsafe_allow_html=True)
+def render_masthead(st, *, premarket=False):
+    heading = MASTHEAD if not premarket else MASTHEAD.replace("今日方向简报", "盘前研究简报").replace("盘后研究", "盘前研究")
+    st.markdown(heading, unsafe_allow_html=True)
     st.sidebar.markdown(SIDEBAR_BRAND, unsafe_allow_html=True)
 
 

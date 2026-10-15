@@ -2,6 +2,8 @@
 
 当前观察流程提供一组本地技术辅助分数，用于查看指标构成，不改变正式候选资格或原有排序。配置位于 `config/sector_observation.json`，固定为 `application=shadow_only`、`changes_candidate_ranking=false`、`llm_export=false`。
 
+以上约束属于原盘后观察流程及其冻结报告。2026-10-13 新增的盘前决策版本 `premarket-recommendation-v1` 在全部量价及资格合格记录中使用该分数排列研究优先级，输出明确记录 `score_used_for_priority=true`。评分计算本身与旧归档契约不变；市场姿态、来源覆盖、公司资料和风险单独判断，高分不能绕过这些门槛。新版接入状态见[盘前研究说明](PREMARKET_RESEARCH.md)。
+
 ## 参考与实现
 
 规则参考项目为 [Intelligent-stock-selector 的固定版本](https://github.com/ktoking/Intelligent-stock-selector/tree/c1bc1797d0c0f314b728f7d9e7639830e87ff0e4)，提交号 `c1bc1797d0c0f314b728f7d9e7639830e87ff0e4`。该出处同样保存在 `src/ashare_daily/reference_strategy.py`，用于结果追溯，不代表上游对本项目背书或授予许可。

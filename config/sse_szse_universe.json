@@ -11,6 +11,7 @@
   "output_directory": "outputs/research/sse_szse_a/universe",
   "calendar_cache": "data/research/f1_calendar",
   "calendar_provider": "exchange_calendars",
+  "szse_list_format": "xlsx_export",
   "timeout_seconds": 20,
   "max_attempts": 2,
   "sources": [

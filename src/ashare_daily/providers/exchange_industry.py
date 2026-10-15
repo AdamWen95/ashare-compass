@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -87,6 +87,43 @@ def _mapping_rows():
         for code, (sse, szse) in SECTION_LABELS.items()]
 
 
+def _export_group(root, universe, manifest, pages, file_refs):
+    from .szse_export import read_bundle, SCHEMA
+    if len(pages) != 1 or manifest.get("expected_pages") != 1:
+        raise ValueError("szse_export_delivery_unit_invalid")
+    page = pages[0]
+    bundle, ref = _read(root, page.get("raw_response_path"))
+    if bundle.get("schema_version") != SCHEMA or page.get("raw_sha256") != ref["sha256"]:
+        raise ValueError("szse_export_bundle_hash_invalid")
+    snapshot, snapshot_ref = _read(root, str(Path(ref["path"]).parent.parent.parent / "snapshot.json"))
+    if snapshot != universe:
+        raise ValueError("original_universe_snapshot_differs")
+    value = read_bundle(root, bundle, target=date.fromisoformat(universe["requested_date"]),
+                        mode="online" if universe["mode"] == "research" else "offline_test")
+    boundary, records, metadata = value["boundary"], value["records"], value["metadata"]
+    if (page.get("page_number") != 1 or page.get("source_boundary") != boundary
+            or page.get("terminal") is not True or page.get("record_count") != len(records)
+            or manifest.get("expected_records") != len(records)
+            or manifest.get("source_expected_pages") != boundary["source_expected_pages"]
+            or manifest.get("source_business_date") != universe["requested_date"]):
+        raise ValueError("szse_export_frozen_boundary_conflict")
+    options = [c for c in metadata.get("conditions", []) if c.get("name") == "selectHylb"]
+    if len(options) != 1 or metadata.get("cols", {}).get("sshymc") != "所属行业":
+        raise ValueError("exchange_szse_industry_enum_missing")
+    pairs = [(o.get("value"), o.get("text")) for o in options[0].get("options", []) if o.get("value") != ""]
+    if sorted(pairs) != sorted((code, code + " " + labels[1]) for code, labels in SECTION_LABELS.items()):
+        raise ValueError("exchange_szse_industry_enum_changed")
+    for source_ref in [ref, snapshot_ref, *value["file_refs"]]:
+        file_refs[source_ref["path"]] = source_ref
+    found = {("SZSE", row["agdm"]): {"raw": row, "page": ref,
+        "source_business_date": universe["requested_date"], "observed_at": value["observed_at"],
+        "dataset": "a_shares"} for row in records}
+    source = {"source": "SZSE", "source_business_date": universe["requested_date"],
+              "observed_at": value["observed_at"], "evidence_path": ref["path"]}
+    enum = {"source": "SZSE", "values": dict(pairs), "evidence_path": ref["path"]}
+    return found, source, enum
+
+
 def _validate_source_pages(root, universe, file_refs):
     manifests = universe.get("source_manifests", [])
     by_group = {}
@@ -113,6 +150,12 @@ def _validate_source_pages(root, universe, file_refs):
     for key in sorted(GROUPS):
         manifest = by_group[key]
         group_pages = sorted(pages[key], key=lambda p: p["page_number"])
+        if key == ("szse", "a_shares") and manifest.get("source_transport") == "official_xlsx_export":
+            export_rows, export_source, export_enum = _export_group(root, universe, manifest, group_pages, file_refs)
+            found.update(export_rows)
+            source_dates.append(export_source)
+            enums.append(export_enum)
+            continue
         expected_pages, expected_records = manifest.get("expected_pages"), manifest.get("expected_records")
         if (type(expected_pages) is not int or type(expected_records) is not int or not 1 <= expected_pages <= 500
                 or [p["page_number"] for p in group_pages] != list(range(1, expected_pages+1))):

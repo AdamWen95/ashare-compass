@@ -1107,26 +1107,32 @@ def render_app(output_root: Path) -> None:
 
     st.set_page_config(page_title="今日方向简报", page_icon="📖", layout="wide")
     apply_theme(st)
-    render_masthead(st)
     st.sidebar.button("刷新展示", key="refresh_display", help="重新读取已经保存的报告与运行记录，不生成新日报。")
-    section = st.sidebar.selectbox("阅读栏目", ["最新简报", "行业研究历史", "行业就绪历史", "历史样本日报", "运行记录", "工程验收（非生产）"],
+    section = st.sidebar.selectbox("阅读栏目", ["最新简报", "盘前简报历史", "行业研究历史", "行业就绪历史", "历史样本日报", "运行记录", "工程验收（非生产）"],
                                    key="archive_section")
     st.sidebar.caption("当前默认范围暂不含北交所；历史报告范围以各自冻结记录为准。")
     observation_reports, research_reports, sector_reports, reports = [], [], [], []
     observation_problems, research_problems, sector_problems, problems = [], [], [], []
     engineering, engineering_problems = [], []
+    morning, morning_problems = [], []
     # Each reader continues to validate current bytes, purposes and hashes.
     # Only the requested family is read. On the default page, stop discovery
     # once a usable family is found, preserving fallback to older valid data.
     with st.spinner("正在读取并核验所选日报，请稍候…"):
         if section == "最新简报":
-            observation_reports, observation_problems = scan_observation_reports(output_root)
-            if not observation_reports:
+            from ashare_daily.premarket.archive import scan_briefs
+            morning, morning_problems = scan_briefs(output_root, now=datetime.now(ZoneInfo("Asia/Shanghai")))
+            if not morning:
+                observation_reports, observation_problems = scan_observation_reports(output_root)
+            if not morning and not observation_reports:
                 research_reports, research_problems = scan_sector_research_reports(output_root)
-            if not observation_reports and not research_reports:
+            if not morning and not observation_reports and not research_reports:
                 sector_reports, sector_problems = scan_sector_reports(output_root)
-            if not observation_reports and not research_reports and not sector_reports:
+            if not morning and not observation_reports and not research_reports and not sector_reports:
                 reports, problems = scan_reports(output_root)
+        elif section == "盘前简报历史":
+            from ashare_daily.premarket.archive import scan_briefs
+            morning, morning_problems = scan_briefs(output_root, now=datetime.now(ZoneInfo("Asia/Shanghai")))
         elif section == "行业研究历史":
             research_reports, research_problems = scan_sector_research_reports(output_root)
         elif section == "行业就绪历史":
@@ -1136,6 +1142,7 @@ def render_app(output_root: Path) -> None:
         elif section == "工程验收（非生产）":
             engineering, engineering_problems = scan_sector_research_reports(output_root, purpose="engineering_validation")
         runs, run_problems = scan_runs(output_root)
+    render_masthead(st, premarket=bool(morning) or section == "盘前简报历史")
     with st.sidebar.expander('任务状态与失败记录'):
         st.subheader("最近一次任务状态")
         actual_runs = [item for item in runs if item.get("status") != "dry_run"]
@@ -1162,7 +1169,10 @@ def render_app(output_root: Path) -> None:
                           else "。之后的预览、未到时间或复用记录不表示已恢复；尚未有同目标日期的新报告生成成功。"))
     with st.sidebar.expander('可阅读数据与更新时间'):
         st.subheader("当前可阅读报告的日期")
-        if observation_reports:
+        if morning:
+            st.metric("最近盘前早报日期", morning[0]["report"]["report_date"])
+            st.caption("行情截至 " + morning[0]["report"]["market_as_of_date"])
+        elif observation_reports:
             st.metric("最近可阅读行情日期", observation_reports[0]["report"]["trade_date"])
             st.caption(_label("观察日报生成于 " + observation_reports[0]["report"]["actual_generated_at"]))
         elif research_reports:
@@ -1180,6 +1190,8 @@ def render_app(output_root: Path) -> None:
         st.warning("部分观察日报未通过完整性检查，已保留旧报告。")
         with st.expander("观察日报读取问题"):
             _table(st, observation_problems)
+    if morning_problems:
+        st.warning("部分盘前早报未通过完整性检查，已拒绝展示。")
     if problems or run_problems:
         st.warning(f"发现 {len(problems)} 个未完整发布或损坏的报告版本、{len(run_problems)} 个异常运行记录；没有将它们显示为成功。")
         with st.expander("存档读取问题"):
@@ -1198,6 +1210,9 @@ def render_app(output_root: Path) -> None:
                 _sector_research(st, engineering, purpose="engineering_validation")
             else:
                 st.info("暂无通过用途和哈希核验的隔离工程报告。")
+        elif morning or section == "盘前简报历史":
+            from ashare_daily.viewer_premarket import render_morning
+            render_morning(st, morning, output_root, runs=runs)
         elif observation_reports:
             _observation_daily(st, observation_reports, output_root)
         elif research_reports:

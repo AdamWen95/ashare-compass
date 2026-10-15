@@ -1,0 +1,75 @@
+{
+  "schema_version": "premarket-policy-v1",
+  "production_enabled": false,
+  "release_status": "pending_premarket_date_and_production_acceptance",
+  "required_roles": ["macro_policy", "securities_regulation", "company_announcements"],
+  "source_roles": {
+    "mofcom_original_news": ["trade_policy"],
+    "mofcom_public_announcements": ["trade_policy"],
+    "sse_public_announcements": ["securities_regulation", "company_announcements"]
+  },
+  "local_sources": [
+    {
+      "registration": {
+        "source_id": "mof_fiscal_news", "name": "财政部主站原创财政新闻", "enabled": true,
+        "source_url": "https://www.mof.gov.cn/zhengwuxinxi/caizhengxinwen/",
+        "cache_allowed": true, "model_use_allowed": false, "publish_excerpt_allowed": false,
+        "checked_at": "2026-10-14T19:29:31+08:00",
+        "permission_basis": "2026-10-14实际目录/正文200，robots404。主站声明转载须注明来源；本轮仅个人非商业本地研究，限定主站财政新闻与正文明确署名财政部新闻办公室的原创资料，不抓外链子站，不上传模型、不全文再分发；保留原文定位和实际日期精度。"
+      },
+      "research_roles": ["macro_policy"],
+      "coverage_scope": "财政部主站原创财政新闻；不含央行、国务院及财政部子站资料，不能代表全部宏观消息",
+      "access_method": "公开HTML目录1页，最多2篇窗口内主站原创正文；其他主机只计入未登记范围，不跟随"
+    },
+    {
+      "registration": {
+        "source_id": "szse_original_news", "name": "深交所本所要闻", "enabled": true,
+        "source_url": "https://www.szse.cn/aboutus/trends/news/index.html",
+        "cache_allowed": true, "model_use_allowed": false, "publish_excerpt_allowed": false,
+        "checked_at": "2026-10-14T19:30:09+08:00",
+        "permission_basis": "2026-10-14实际目录、正文和法律声明200，robots200空规则。https://www.szse.cn/application/laws/允许非商业浏览下载；限本地研究，不全文外发模型或出售传播。页面及文字导出的来源链接指向深交所首页，原始文章URL保存在证据记录。"
+      },
+      "research_roles": ["securities_regulation"],
+      "coverage_scope": "深交所本所要闻（含规则动态和上市消息）；不含证监会、上交所或全部监管通知",
+      "access_method": "公开HTML目录中的固定字符串与可见日期，绝不执行脚本；1页目录最多2篇HTML正文，PDF与站外资料不在范围"
+    },
+    {
+      "registration": {
+        "source_id": "pbc_policy_news", "name": "中国人民银行公开政策新闻", "enabled": false,
+        "source_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "cache_allowed": true, "model_use_allowed": false, "publish_excerpt_allowed": false,
+        "checked_at": "2026-10-13T12:12:45+08:00",
+        "permission_basis": "核对官网公开阅读、政府信息公开指南及版权声明；仅个人学习研究的有界本地读取与缓存，不构成商业转载或第三方模型使用授权。正文不外发，读者展示发布事实与原文链接。每次采集检查robots，限制访问即停止。"
+      },
+      "research_roles": ["macro_policy"],
+      "disabled_reason": "2026-10-13实际robots规则User-agent:* Disallow:/，停止自动读取；不使用搜索爬虫身份冒充访问。解析实现只供已保存样本验证，需合法可用的替代来源。",
+      "access_method": "官网公开HTML目录及正文；最多1页目录、2篇窗口内文章；无脚本执行"
+    },
+    {
+      "registration": {
+        "source_id": "csrc_regulation_news", "name": "中国证监会公开监管新闻", "enabled": false,
+        "source_url": "https://www.csrc.gov.cn/csrc/c100028/common_xq_list.shtml",
+        "cache_allowed": true, "model_use_allowed": false, "publish_excerpt_allowed": false,
+        "checked_at": "2026-10-13T12:12:46+08:00",
+        "permission_basis": "核对官网法律声明及普通公开列表页面调用；只作个人学习研究的本地读取，不出售、出租或篡改来源，不把页面后台接口称为对外授权API。正文不外发给模型，不转载正文；限制访问即停止。"
+      },
+      "research_roles": ["securities_regulation"],
+      "disabled_reason": "2026-10-13实际robots请求返回HTTP302，未跟随跳转，访问规则未完成核验；自动采集关闭。",
+      "access_method": "官网公开列表JSON与对应HTML正文；最多1页目录、2篇窗口内文章；不将目录时间当生效时间"
+    },
+    {
+      "registration": {
+        "source_id": "cninfo_company_announcements", "name": "巨潮资讯公开公司公告", "enabled": true,
+        "source_url": "https://www.cninfo.com.cn/",
+        "cache_allowed": true, "model_use_allowed": false, "publish_excerpt_allowed": false,
+        "checked_at": "2026-10-13T12:12:48+08:00",
+        "permission_basis": "核对深交所法定信息披露平台公开查询页面及实际目录/PDF样本；仅个人研究有界本地核查，不再分发PDF或全文，不将网页后台接口称为对外授权API。不上传第三方模型，不绕过认证或限流，robots不允许即停止。"
+      },
+      "research_roles": ["company_announcements"],
+      "access_method": "公开页面的证券身份映射、每股1页30条目录及HTTPS PDF；只处理已验证的最多5只预选股；页外不补抓"
+    }
+  ],
+  "news_max_requests": 20,
+  "universe_max_seconds": 900,
+  "market_max_seconds": 1200
+}

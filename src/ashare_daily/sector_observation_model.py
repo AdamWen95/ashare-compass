@@ -71,7 +71,8 @@ def _messages(prepared: dict, config: ResearchConfig) -> list[dict]:
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
 
 
-def _prepare(bundle: dict, registry: dict, start: str, cutoff: str, input_limit: int) -> tuple[dict, dict, list[dict]]:
+def _prepare(bundle: dict, registry: dict, start: str, cutoff: str, input_limit: int, *,
+             context_scope="market_background", allowed_entities=None) -> tuple[dict, dict, list[dict]]:
     registered = {source["registration"]["source_id"]: source["registration"]
                   for source in registry["sources"]}
     archived = {}
@@ -101,17 +102,28 @@ def _prepare(bundle: dict, registry: dict, start: str, cutoff: str, input_limit:
             continue
         # Association annotations are not needed for a market-only context.
         value = deepcopy(item)
-        value["security_associations"] = []
+        if context_scope == "market_background":
+            value["security_associations"] = []
         evidence.append(value)
         admitted_sources[item["source_id"]] = current
-    selection = select_evidence(evidence, start, cutoff, allow_historical_reconstruction=True)
+    selection = select_evidence(evidence, start, cutoff, allow_historical_reconstruction=context_scope != "premarket")
     config = ResearchConfig(prompt_version="evidence-research-v1.1.1", max_research_objects=0,
                             max_evidence_documents=8, max_claims=8, prefer_recent_evidence=True)
     prepared = prepare_model_input(selection["eligible"], list(admitted_sources.values()),
                                    {"evaluations": [], "candidates": []}, config)
+    if context_scope == "premarket":
+        original = {item["evidence_id"]: item for item in selection["eligible"]}
+        for item in prepared["evidence"]:
+            item["security_associations"] = [deepcopy(link) for link in original[item["evidence_id"]].get("security_associations", [])
+                if link["symbol"] in allowed_entities and link["name"] == allowed_entities[link["symbol"]]["name"]
+                and link["basis_quote"] in item["content"]]
     prepared["skipped_evidence"] = excluded + prepared["skipped_evidence"]
     while True:
-        messages = _messages(prepared, config)
+        if context_scope == "premarket":
+            from .premarket.prompts import event_messages
+            messages = event_messages(prepared, config)
+        else:
+            messages = _messages(prepared, config)
         size = sum(len(message["content"]) for message in messages)
         if size <= input_limit or not prepared["evidence"]:
             prepared["complete_prompt_characters"] = size
@@ -131,7 +143,8 @@ def run_sector_market_context(*, evidence_bundle: Path | str | None, start: str 
                               offline: bool = False, skip_model: bool = False,
                               max_calls_per_day: int = 6,
                               max_seconds: float | None = None,
-                              model_capabilities: Path | None = None) -> dict:
+                              model_capabilities: Path | None = None,
+                              context_scope: str = "market_background", allowed_entities: dict | None = None) -> dict:
     """Return background plus its frozen evidence/audit, never alter observations.
 
     ``start`` and ``cutoff`` must include a timezone. The caller loads model
@@ -146,6 +159,15 @@ def run_sector_market_context(*, evidence_bundle: Path | str | None, start: str 
         return result
     phase = "invalid_interval"
     try:
+        phase = "invalid_context_scope"
+        if context_scope not in {"market_background", "premarket"} or (context_scope == "market_background" and allowed_entities):
+            raise ValueError("context_scope_invalid")
+        allowed_entities = allowed_entities or {}
+        if (not isinstance(allowed_entities, dict) or len(allowed_entities) > 5
+                or any(not isinstance(v, dict) or not isinstance(v.get("name"), str) for v in allowed_entities.values())):
+            raise ValueError("context_entities_invalid")
+        if context_scope == "premarket":
+            result.update(scope="licensed_premarket_text_only", notice="仅解释获准外发的文字，保留可核验主体；量价、评分和推荐由本地代码完成。")
         phase = "invalid_runtime_configuration"
         if max_seconds is not None and (type(max_seconds) not in {int, float}
                 or not math.isfinite(max_seconds) or not 0 <= max_seconds <= 14400):
@@ -171,10 +193,10 @@ def run_sector_market_context(*, evidence_bundle: Path | str | None, start: str 
         phase = "invalid_model_configuration"
         configured = client.settings if client is not None else settings or ModelSettings()
         configured = configured.model_copy(update={"max_calls": min(2, configured.max_calls),
-                                                   "max_retries": min(1, configured.max_retries)})
+                                                   "max_retries": 0 if context_scope == "premarket" else min(1, configured.max_retries)})
         phase = "evidence_preparation_failed"
         prepared, selection, messages = _prepare(bundle, registry, first.isoformat(), last.isoformat(),
-                                                 configured.max_input_chars)
+            configured.max_input_chars, context_scope=context_scope, allowed_entities=allowed_entities)
         result["coverage"] = {"acquired_catalog_count": len(bundle["evidence"]),
                               "time_eligible_count": selection["eligible_count"],
                               "model_input_evidence_count": len(prepared["evidence"]),
@@ -279,7 +301,7 @@ def run_sector_market_context(*, evidence_bundle: Path | str | None, start: str 
             if len(parsed["claims"]) > 8:
                 result["status"] = model_run["status"] = "claim_budget_exceeded"
             else:
-                result["analysis"] = validate_claims(parsed, prepared["evidence"], {}, {}, last,
+                result["analysis"] = validate_claims(parsed, prepared["evidence"], allowed_entities, {}, last,
                                                      strict_counterevidence=True)
                 status = result["analysis"]["status"]
                 result["status"] = model_run["status"] = (

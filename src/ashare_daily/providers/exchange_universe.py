@@ -29,6 +29,7 @@ SSE_ENDPOINT = "https://query.sse.com.cn/sseQuery/commonQuery.do"
 SSE_METADATA_ENDPOINT = "https://query.sse.com.cn/commonQuery.do"
 SZSE_PAGE = "https://www.szse.cn/market/product/stock/list/index.html"
 SZSE_ENDPOINT = "https://www.szse.cn/api/report/ShowReport/data"
+SZSE_EXPORT_ENDPOINT = "https://www.szse.cn/api/report/ShowReport"
 BOARDS = {"sse_main": "SSE", "star": "SSE", "szse_main": "SZSE", "chinext": "SZSE", "bse": "BSE"}
 COMPONENT_EVIDENCE = {
     "SSE": "https://www.sse.com.cn/xhtml/home/2021public/querySearch/search_stocksDepositoryReceipts_2021.js",
@@ -73,7 +74,7 @@ class WebsiteTransport:
         self.opener = build_opener(_NoRedirect(), HTTPSHandler(context=ssl.create_default_context()))
 
     def __call__(self, endpoint: str, params: dict, *, label: str, target: date) -> dict:
-        if endpoint not in {SSE_ENDPOINT, SSE_METADATA_ENDPOINT, SZSE_ENDPOINT}:
+        if endpoint not in {SSE_ENDPOINT, SSE_METADATA_ENDPOINT, SZSE_ENDPOINT, SZSE_EXPORT_ENDPOINT}:
             raise ValueError("unregistered website component")
         host = urlsplit(endpoint).hostname
         if host in self.stopped_hosts:
@@ -123,18 +124,26 @@ class WebsiteTransport:
         raw = b""
         try:
             request = Request(url, headers={"Referer": SSE_PAGE if "sse.com.cn" in host else SZSE_PAGE,
-                                           "User-Agent": "ashare-daily-research/0.5 local-noncommercial"})
+                                           "User-Agent": "ashare-daily-research/0.5 local-noncommercial",
+                                           **({"Cache-Control": "no-cache"} if host == "www.szse.cn" else {})})
             timeout = self.timeout if self.deadline is None else min(self.timeout, max(0.001, self.deadline - started))
             with self.opener.open(request, timeout=timeout) as response:
                 result["http_status"] = response.status
                 result["content_type"] = response.headers.get("Content-Type")
                 result["source_http_date"] = response.headers.get("Date")
                 result["source_last_modified"] = response.headers.get("Last-Modified")
+                result["source_cache_control"] = response.headers.get("Cache-Control")
+                result["source_age"] = response.headers.get("Age")
                 raw = response.read(4_000_001)
             if len(raw) > 4_000_000:
                 raise ComponentContractError("response_size_limit")
-            body = json.loads(raw.decode("utf-8-sig"))
-            result.update(ok=True, status="ok", body=body)
+            if endpoint == SZSE_EXPORT_ENDPOINT:
+                if not raw.startswith(b"PK"):
+                    raise ComponentContractError("szse_export_not_xlsx")
+                result.update(ok=True, status="ok", body_format="xlsx")
+            else:
+                body = json.loads(raw.decode("utf-8-sig"))
+                result.update(ok=True, status="ok", body=body)
         except HTTPError as exc:
             result.update(http_status=exc.code, status="access_denied" if exc.code in {401, 403} else
                           "rate_limited" if exc.code == 429 else "http_error", error=str(exc))
@@ -288,7 +297,7 @@ def discover_exchange_lists(*, target: date, directory: Path, permissions: dict,
                             transport: Callable | None = None,
                             enrich_star: bool = True, cache_directory: Path | None = None,
                             max_elapsed_seconds: int = 900, scope: str = "all_a",
-                            max_attempts: int = 1) -> tuple[list, list, list]:
+                            max_attempts: int = 1, szse_list_format: str = "json_pages") -> tuple[list, list, list]:
     """Return existing universe pages/manifests/requests; never another stock pool.
 
     permissions maps SSE/SZSE/BSE to enabled/permission_status/access_status.
@@ -309,6 +318,8 @@ def discover_exchange_lists(*, target: date, directory: Path, permissions: dict,
         raise ValueError("discovery requires a bounded elapsed-time budget")
     if type(max_attempts) is not int or not 1 <= max_attempts <= 2:
         raise ValueError("website requests allow one or two attempts")
+    if szse_list_format not in {"json_pages", "xlsx_export"}:
+        raise ValueError("unregistered SZSE list format")
     if mode == "offline_test" and cache_directory is not None:
         raise ValueError("test transports cannot populate live metadata caches")
     directory.mkdir(parents=True, exist_ok=True)
@@ -359,6 +370,14 @@ def discover_exchange_lists(*, target: date, directory: Path, permissions: dict,
             continue
         parts, seen, baseline, details_stopped = [], set(), None, False
         try:
+            if exchange == "SZSE" and szse_list_format == "xlsx_export":
+                from .szse_export import collect_export
+                if time.monotonic() - started > max_elapsed_seconds:
+                    raise ComponentContractError("discovery_elapsed_budget_reached")
+                part, updates = collect_export(fetch, directory, target=target, mode=mode, requests=requests)
+                pages.append(part)
+                manifest.update(updates)
+                continue
             for number in range(1, 2049):  # Safety bound; reaching it fails closed, never truncates successfully.
                 if time.monotonic() - started > max_elapsed_seconds:
                     raise ComponentContractError("discovery_elapsed_budget_reached")

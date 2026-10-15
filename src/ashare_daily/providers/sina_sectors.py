@@ -675,7 +675,7 @@ class SinaSectorProvider:
             except (ValueError, TypeError, KeyError, UnicodeError) as exc:
                 issues.append(str(exc))
                 missing.extend(_quote_symbol(item) for item in batch)
-            if self.client.stopped or self.client.calls >= self.client.max_requests:
+            if self.client.stopped or (self.client.calls >= self.client.max_requests and begin+80 < len(known)):
                 missing.extend(_quote_symbol(item) for item in known[begin+80:])
                 issues.append("quote_source_stopped_before_completion")
                 break
