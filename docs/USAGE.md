@@ -143,6 +143,8 @@ python -m streamlit run streamlit_app.py --server.address 127.0.0.1 --server.por
 
 观察日报默认在 `outputs/research/sse_szse_a/observation_reports/`，包括 `daily_observation.html`、`daily_observation.md`、`daily_observation.json` 与 `screening_audit.csv`。实际版本路径以命令返回的 `report.directory` 为准。网页提供对应产物下载，工程验证报告有独立栏目。
 
+观察日报与盘前早报的HTML下载使用网站一致的阅读排版，包含章节目录、卡片、移动端布局及A4打印样式。下载前仍验证原归档，再用其中的事实生成当前样式的HTML；不重新采集、重算评分或修改原报告日期。原始归档及哈希不变，Markdown、JSON、CSV仍下载原冻结字节；新生成报告的HTML归档也使用此模板。
+
 检查命令返回的 `status`、`generation_status`、`module_statuses` 与 `exit_code`，不要仅凭文件存在判断成功。日观察退出码含义：
 
 | 退出码 | 含义 |

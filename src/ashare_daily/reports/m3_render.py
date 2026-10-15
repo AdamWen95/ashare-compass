@@ -126,25 +126,43 @@ def render_m3_html(report: dict) -> str:
 
 
 def render_sections_html(report_title: str, trade_date: str, notice: str, report_sections: list, *, eyebrow=None) -> str:
-    """Reuse the existing offline research template and its CSP/escaping."""
-    content = []
+    """Render the website's reading style without changing any frozen content."""
+    content, navigation = [], []
     for index, (title, blocks) in enumerate(report_sections, 1):
-        content.append(f'<section id="section-{index}"><h2>{escape(title)}</h2>')
+        navigation.append(f'<a href="#section-{index}"><span>{index:02d}</span>{escape(title)}</a>')
+        content.append(f'<section id="section-{index}" aria-labelledby="heading-{index}">'
+            f'<div class="section-heading"><span class="section-index" aria-hidden="true">{index:02d}</span>'
+            f'<h2 id="heading-{index}">{escape(title)}</h2></div><div class="section-content">')
+        item_open = False
         for kind, value in blocks:
-            if kind == "table":
+            group_label = kind == "paragraph" and value in {"重点关注", "待核查观察"}
+            section_note = kind == "paragraph" and value.startswith(("辅助策略限制：", "参考源码版本："))
+            if item_open and (group_label or section_note):
+                content.append('</article></div>')
+                item_open = False
+            if group_label:
+                content.append(f'<p class="group-label">{escape(value)}</p>')
+            elif kind == "table":
                 headers, rows = value
-                content.append('<div class="table-wrap"><table><thead><tr>' + ''.join(f'<th scope="col">{escape(str(v))}</th>' for v in headers) + '</tr></thead><tbody>')
+                content.append(f'<div class="table-wrap" role="region" aria-label="{escape(title, quote=True)}表格" tabindex="0">'
+                    '<table><thead><tr>' + ''.join(f'<th scope="col">{escape(str(v))}</th>' for v in headers) + '</tr></thead><tbody>')
                 content.extend('<tr>' + ''.join(f'<td>{escape(str(v))}</td>' for v in row) + '</tr>' for row in rows)
                 content.append('</tbody></table></div>')
+            elif kind == "subheading":
+                content.append('</article>' if item_open else '<div class="report-items">')
+                content.append(f'<article class="report-item"><h3>{escape(value)}</h3>')
+                item_open = True
             else:
-                tag = "h3" if kind == "subheading" else "p"
-                content.append(f'<{tag}>{escape(value)}</{tag}>')
-        content.append('</section>')
+                note = value.startswith(("资料限制：", "风险", "待核查与风险：", "公告待查：", "财务风险：", "财务缺口：", "失效条件："))
+                content.append(f'<p class="{"risk-note" if note else "report-copy"}">{escape(value)}</p>')
+        if item_open:
+            content.append('</article></div>')
+        content.append('</div></section>')
     template = files("ashare_daily").joinpath("reports/templates/research.html").read_text(encoding="utf-8")
-    if eyebrow is not None:
-        template = template.replace("M3 · 证据研究增强 · 仅限登记来源", escape(eyebrow))
-    values = {"title": escape(report_title), "date": escape(trade_date), "notice": escape(notice), "body": '\n'.join(content)}
-    return re.sub(r'\{\{(title|date|notice|body)\}\}', lambda match: values[match[1]], template)
+    values = {"title": escape(report_title), "date": escape(trade_date), "notice": escape(notice),
+        "eyebrow": escape("证据研究 · 仅限登记来源" if eyebrow is None else eyebrow),
+        "body": '\n'.join(content), "navigation": '\n'.join(navigation)}
+    return re.sub(r'\{\{(title|date|notice|eyebrow|body|navigation)\}\}', lambda match: values[match[1]], template)
 
 
 def write_claim_audit(report: dict, path: Path) -> None:

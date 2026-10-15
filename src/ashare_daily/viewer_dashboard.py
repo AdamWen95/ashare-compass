@@ -370,10 +370,16 @@ def render_dashboard(st, archive, output_root):
         st.caption("与本期冻结报告逐节对应；补采时间、风险、引用和来源限制均保留。")
     else:
         from .reports.observation import read_observation_report, EXPORTS
+        from .reports.m3_render import render_sections_html
         st.subheader("导出本期观察日报")
-        st.caption("下载原始冻结版本，包含完整研究依据、风险和核验明细。")
+        st.caption("HTML采用与网站一致的新版排版；数据、依据和风险沿用本期冻结记录，其他格式保留原始内容。")
         # One fresh verification covers this render's complete registered bundle.
         checked = read_observation_report(output_root, archive["directory"])
         for name, (label, mime) in EXPORTS.items():
-            st.download_button(label, checked["files"][name], file_name=report["trade_date"]+"-"+name,
+            data = checked["files"][name]
+            if name == "daily_observation.html":
+                frozen = checked["report"]
+                data = render_sections_html(frozen["title"], frozen["trade_date"], frozen["notice"], frozen["sections"],
+                    eyebrow="盘后研究 · 本地量价筛选 · 可选新闻解释").encode("utf-8")
+            st.download_button(label, data, file_name=report["trade_date"]+"-"+name,
                 mime=mime, key="observation_export_"+name, on_click="ignore")

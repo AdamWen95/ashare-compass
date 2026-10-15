@@ -119,6 +119,13 @@ def render_morning(st, archives, output_root, *, now=None, runs=None):
         st.json(report["rule_versions"])
         st.caption("初版规则为研究启发式；技术验证不代表已证明策略效果。")
     with st.expander("导出本期报告"):
+        from .reports.m3_render import render_sections_html
+        from .premarket.report import report_sections
+        st.caption("HTML采用与网站一致的新版排版；本期事实、时间和风险保持不变，其他格式保留原始内容。")
         labels = {"premarket_brief.json": "JSON", "premarket_brief.md": "Markdown", "premarket_brief.html": "HTML"}
         for name, label in labels.items():
-            st.download_button(label, archive["files"][name], file_name=report["report_date"] + "-" + name, key="premarket_download_" + name)
+            data = archive["files"][name]
+            if name == "premarket_brief.html":
+                data = render_sections_html(report["title"], report["report_date"], report["notice"], report_sections(report),
+                    eyebrow="盘前研究 · 3–10个交易日 · 数据与风险可追溯").encode("utf-8")
+            st.download_button(label, data, file_name=report["report_date"] + "-" + name, key="premarket_download_" + name)

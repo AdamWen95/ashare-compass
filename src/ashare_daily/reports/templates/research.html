@@ -6,40 +6,135 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
   <title>{{title}}｜{{date}}</title>
   <style>
-    :root { color-scheme: light; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; color: #182a3d; background: #f1f4f8; }
-    * { box-sizing: border-box; }
-    body { margin: 0; line-height: 1.75; }
-    .hero { background: #102a43; color: #fff; padding: 36px max(24px, calc((100vw - 1056px)/2)); }
-    .eyebrow { color: #afe0ec; font-size: 13px; font-weight: 700; }
-    h1 { margin: 10px 0; font-size: clamp(26px, 5vw, 36px); line-height: 1.4; }
-    .date { margin: 0; color: #cfdae5; }
-    main { max-width: 1104px; margin: 0 auto; padding: 24px; }
-    .notice { border: 1px solid #e6be72; border-left: 5px solid #bd7909; background: #fff4d8; padding: 18px 22px; border-radius: 6px; margin-bottom: 24px; color: #684107; font-weight: 700; }
-    section { padding: 26px 30px; margin-bottom: 22px; border: 1px solid #dce3eb; border-radius: 8px; background: #fff; }
-    h2 { font-size: 21px; line-height: 1.5; margin: 0 0 18px; padding-bottom: 12px; border-bottom: 2px solid #dbeaf0; }
-    h3 { font-size: 17px; margin: 24px 0 12px; color: #15586d; }
-    p { margin: 12px 0; overflow-wrap: anywhere; }
-    .table-wrap { overflow-x: auto; margin: 16px 0; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th { background: #edf4f8; text-align: left; color: #284960; }
-    td, th { padding: 10px 12px; border-bottom: 1px solid #e3e9ef; vertical-align: top; overflow-wrap: anywhere; }
-    td:first-child { min-width: 118px; }
-    tr:nth-child(even) td { background: #f9fbfd; }
-    footer { text-align: center; padding: 16px 20px 40px; color: #5c6f80; font-size: 13px; }
-    @media (max-width: 600px) { main { padding: 14px; } section { padding: 20px 16px; } td, th { padding: 9px; } }
-    @media print { body { background: white; } .hero { padding: 20px; print-color-adjust: exact; } main { padding: 0; } section { border: 0; border-radius: 0; } h2, h3 { break-after: avoid; } tr { break-inside: avoid; } }
+    :root { color-scheme:light; --brief-ink:#3d2b24; --brief-muted:#79675c; --brief-accent:#bd432b;
+      --brief-line:#ebdfd5; --brief-paper:#faf6f1; --brief-card:#fff;
+      --brief-font:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+      font-family:var(--brief-font); color:var(--brief-ink); background:var(--brief-paper); }
+    * { box-sizing:border-box; } html { scroll-padding-top:24px; }
+    body { margin:0; font-size:14px; line-height:1.85; } a { color:inherit; text-decoration:none; }
+    a:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--brief-accent); outline-offset:4px; }
+    .skip-link { position:absolute; top:-100px; left:24px; padding:10px 18px; background:#fff; z-index:2; }
+    .skip-link:focus { top:12px; }
+    .page-shell { max-width:1280px; margin:0 auto; padding:38px 44px 0; }
+    .brand-row { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:30px; }
+    .brief-brand { display:flex; align-items:center; gap:11px; }
+    .brand-mark { display:grid; place-items:center; width:40px; height:40px; border-radius:12px;
+      background:#b9422a; color:#fff; font-size:23px; font-weight:650; }
+    .brand-name { display:block; font-size:15px; letter-spacing:.08em; line-height:1.5; }
+    .brand-en { display:block; font-size:9px; letter-spacing:.18em; color:#856957; margin-top:3px; }
+    .readonly { display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border:1px solid #eed5c3;
+      border-radius:20px; background:#fffdf9; color:#985234; font-size:11px; white-space:nowrap; }
+    .readonly::before { content:""; width:6px; height:6px; border-radius:50%; background:#c66a38; }
+    .cover { display:flex; align-items:center; justify-content:space-between; gap:32px; padding:30px 34px;
+      border:1px solid #b54428; border-radius:18px; color:#fff;
+      background:linear-gradient(115deg,#9e2c24 0%,#bb4726 65%,#b35222 100%); box-shadow:0 8px 20px #a6451812; }
+    .cover-copy { min-width:0; }
+    .eyebrow { font-size:11px; letter-spacing:.12em; color:#fff0e1; margin-bottom:12px; }
+    h1 { margin:0; font-size:clamp(25px,3vw,34px); font-weight:650; line-height:1.55;
+      letter-spacing:-.03em; overflow-wrap:anywhere; }
+    .cover-caption { margin:10px 0 0; font-size:12px; color:#fff5ec; }
+    .cover-date { flex:0 0 auto; padding-left:30px; border-left:1px solid #ffffff38; text-align:right; }
+    .cover-date small { display:block; color:#fff5ec; font-size:11px; letter-spacing:.08em; }
+    .cover-date strong { display:block; margin:8px 0; font-size:23px; font-weight:500; font-variant-numeric:tabular-nums; }
+    .cover-date span { font-size:10px; letter-spacing:.14em; color:#fff5ec; }
+    .notice { margin:18px 0 28px; padding:16px 20px; border:1px solid #efdfc6; border-radius:11px;
+      color:#77613b; background:#fff5e5; font-size:12px; line-height:1.9; }
+    .notice strong { display:block; margin-bottom:3px; color:#876c3d; font-size:11px; letter-spacing:.05em; }
+    .report-layout { display:grid; grid-template-columns:196px minmax(0,1fr); gap:28px; align-items:start; }
+    .report-nav { position:sticky; top:24px; padding:8px 0 20px; max-height:calc(100vh - 48px); overflow-y:auto; }
+    .nav-title { margin:0 0 13px 12px; font-size:10px; font-weight:650; color:#9b583d; letter-spacing:.15em; }
+    .report-nav a { display:flex; align-items:baseline; gap:10px; padding:10px 12px; margin-bottom:4px;
+      border-radius:8px; font-size:12px; line-height:1.7; color:var(--brief-muted); overflow-wrap:anywhere; }
+    .report-nav a span { flex:0 0 18px; font-size:10px; color:#9b806e; font-variant-numeric:tabular-nums; }
+    .report-nav a:hover,.report-nav a:focus-visible { color:#ac3525; background:#fff; box-shadow:0 1px 5px #763c2012; }
+    .report-content { min-width:0; }
+    section { margin-bottom:22px; border:1px solid var(--brief-line); border-radius:15px;
+      background:var(--brief-card); box-shadow:0 3px 12px #763c2003; overflow:hidden; }
+    .section-heading { display:flex; align-items:baseline; gap:13px; padding:22px 26px 18px; border-bottom:1px solid #f1e7df; }
+    .section-index { flex-shrink:0; font-size:11px; color:var(--brief-accent); font-weight:650; font-variant-numeric:tabular-nums; }
+    h2 { margin:0; font-size:18px; font-weight:650; line-height:1.55; letter-spacing:-.02em; overflow-wrap:anywhere; }
+    .section-content { padding:8px 26px 24px; } p { overflow-wrap:anywhere; }
+    .report-copy { margin:14px 0; color:#6b594d; font-size:13px; }
+    .group-label { margin:22px 0 8px; color:#9b583d; font-size:12px; font-weight:650; letter-spacing:.05em; }
+    .report-items { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:16px; margin-top:18px; }
+    .report-item { min-width:0; padding:20px; border:1px solid var(--brief-line); border-radius:12px; background:#fffdf9; }
+    h3 { margin:0 0 15px; padding-bottom:12px; border-bottom:1px solid #f1e7df;
+      font-size:17px; font-weight:650; line-height:1.65; color:#4b2d24; overflow-wrap:anywhere; }
+    .report-item .report-copy { font-size:12px; margin:12px 0; }
+    .risk-note { padding:11px 13px; margin:12px 0; background:#fff5e5; border-radius:8px; color:#77613b; font-size:12px; line-height:1.9; }
+    .table-wrap { margin:16px 0; overflow-x:auto; border:1px solid var(--brief-line); border-radius:10px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+    th { background:#f8f1e9; color:#795944; font-weight:600; text-align:left; }
+    td,th { padding:11px 13px; border-bottom:1px solid #f1e7df; vertical-align:top; overflow-wrap:anywhere; min-width:86px; }
+    td { color:#655247; line-height:1.8; } tr:last-child td { border-bottom:0; }
+    tbody tr:nth-child(even) td { background:#fdfaf6; } tbody tr:hover td { background:#fff7ef; }
+    .report-item td,.report-item th { padding:9px 10px; min-width:68px; font-size:11px; }
+    footer { display:flex; justify-content:space-between; gap:16px; padding:22px 0 34px;
+      margin-top:12px; border-top:1px solid var(--brief-line); color:#8a7465; font-size:11px; }
+    footer a { color:#9b583d; white-space:nowrap; }
+    @media(max-width:960px) {
+      .page-shell { padding:26px 26px 0; } .report-layout { grid-template-columns:minmax(0,1fr); gap:16px; }
+      .report-nav { position:static; max-height:none; padding:0 0 12px; display:flex; flex-wrap:wrap; gap:5px; }
+      .nav-title { flex-basis:100%; margin:0 0 6px; }
+      .report-nav a { padding:7px 10px; margin:0; background:#fffdf9; border:1px solid var(--brief-line); }
+      .cover { padding:25px 28px; } .cover-date { padding-left:22px; }
+    }
+    @media(max-width:600px) {
+      body { font-size:13px; } .page-shell { padding:20px 16px 0; } .brand-row { margin-bottom:20px; }
+      .brand-mark { width:35px; height:35px; border-radius:10px; font-size:21px; } .brand-name { font-size:14px; }
+      .readonly { font-size:10px; padding:4px 8px; } .cover { display:block; padding:23px; border-radius:14px; }
+      h1 { font-size:25px; } .eyebrow { font-size:10px; letter-spacing:.06em; }
+      .cover-date { margin-top:20px; padding:15px 0 0; border-left:0; border-top:1px solid #ffffff38; text-align:left; }
+      .cover-date strong { font-size:19px; margin:3px 0; } .cover-date span { display:none; }
+      .notice { padding:13px 16px; margin:14px 0 23px; } .report-nav a { font-size:11px; }
+      .section-heading { padding:18px 17px 14px; gap:10px; } h2 { font-size:16px; }
+      .section-content { padding:5px 17px 18px; } .report-items { grid-template-columns:minmax(0,1fr); gap:12px; }
+      .report-item { padding:16px; } footer { display:block; font-size:10px; } footer a { display:inline-block; margin-top:12px; }
+    }
+    @page { size:A4; margin:14mm; }
+    @media print {
+      :root { background:#fff; } body { color:#30251f; font-size:10pt; } .page-shell { max-width:none; padding:0; }
+      .skip-link,.report-nav,.readonly,footer a { display:none; } .brand-row { margin-bottom:7mm; }
+      .cover { color:var(--brief-ink); background:#fff; border:0; border-top:3px solid var(--brief-accent);
+        border-radius:0; padding:6mm 0; box-shadow:none; }
+      .cover-caption,.eyebrow,.cover-date small,.cover-date span { color:#79675c; } .cover-date { border-color:var(--brief-line); }
+      h1 { font-size:23pt; } .notice { background:#fff; border-color:var(--brief-line); margin:3mm 0 7mm; padding:3mm; font-size:9pt; }
+      .report-layout,.report-items { display:block; }
+      section { border:0; border-radius:0; box-shadow:none; overflow:visible; margin-bottom:6mm; }
+      .section-heading { padding:4mm 0 3mm; break-after:avoid; page-break-after:avoid; } .section-content { padding:0; }
+      h2 { font-size:14pt; } h3 { font-size:11pt; } h2,h3 { break-after:avoid; page-break-after:avoid; }
+      .report-item { background:#fff; border-radius:0; padding:4mm; margin:4mm 0; }
+      .report-copy,.report-item .report-copy { font-size:9pt; } p { orphans:3; widows:3; }
+      .risk-note { background:#fff; border-left:2px solid #cfa36f; font-size:9pt; padding:2mm 3mm; }
+      .table-wrap { overflow:visible; border:0; border-radius:0; margin:4mm 0; } table { table-layout:fixed; font-size:8pt; }
+      td,th,.report-item td,.report-item th { min-width:0; padding:2mm; font-size:8pt; overflow-wrap:anywhere; }
+      thead { display:table-header-group; } tr { break-inside:avoid; page-break-inside:avoid; }
+      th,tbody tr:nth-child(even) td { background:#fff; } footer { font-size:8pt; margin-top:5mm; padding:3mm 0 0; }
+    }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <div class="eyebrow">M3 · 证据研究增强 · 仅限登记来源</div>
-    <h1>{{title}}</h1>
-    <p class="date">分析交易日 {{date}} · 实际行情日期和生成时间见数据状态</p>
-  </header>
-  <main>
-    <aside class="notice" role="note">{{notice}}</aside>
-    {{body}}
-  </main>
-  <footer>冻结量价与证据 · 模型状态见报告 · 无交易操作</footer>
+  <a class="skip-link" href="#report-content">跳至报告正文</a>
+  <div class="page-shell" id="report-top">
+    <header>
+      <div class="brand-row">
+        <div class="brief-brand"><span class="brand-mark" aria-hidden="true">研</span><div>
+          <strong class="brand-name">方向研究室</strong><span class="brand-en">DAILY RESEARCH</span>
+        </div></div><span class="readonly">只读研究</span>
+      </div>
+      <div class="cover">
+        <div class="cover-copy"><div class="eyebrow">{{eyebrow}}</div><h1>{{title}}</h1>
+          <p class="cover-caption">关注方向 · 筛选依据 · 风险与证据</p></div>
+        <div class="cover-date"><small>报告日期</small><strong>{{date}}</strong><span>北京时间 / CST</span></div>
+      </div>
+    </header>
+    <aside class="notice" role="note"><strong>阅读提示</strong>{{notice}}</aside>
+    <div class="report-layout">
+      <nav class="report-nav" aria-label="报告目录"><div class="nav-title">报告目录 / CONTENTS</div>{{navigation}}</nav>
+      <main class="report-content" id="report-content">{{body}}</main>
+    </div>
+    <footer><span>方向研究室 · 保留本期数据、依据与风险<br>实际行情日期、消息截点与生成时间以正文记录为准</span>
+      <a href="#report-top">返回顶部 ↑</a></footer>
+  </div>
 </body>
 </html>
