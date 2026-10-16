@@ -108,7 +108,8 @@ def test_current_permission_reversal_blocks_frozen_authorization(tmp_path, field
 
 
 @pytest.mark.parametrize("evidence_valid", [True, False])
-def test_reparse_archive_revalidates_existing_status_overlay_before_restoring_it(tmp_path, monkeypatch, evidence_valid):
+@pytest.mark.parametrize("observed_day", [None, "2026-09-14"])
+def test_reparse_archive_revalidates_existing_status_overlay_before_restoring_it(tmp_path, monkeypatch, evidence_valid, observed_day):
     """Exercise integration only; HTTP and status contracts have separate fixtures."""
     from dataclasses import asdict
     from ashare_daily.sector_pipeline import revalidate_dated_quote_archive
@@ -124,12 +125,15 @@ def test_reparse_archive_revalidates_existing_status_overlay_before_restoring_it
     packet = {"rows": [{"symbol": "sh600001", "full_day_halt_evidence": {"untrusted_old_summary": True}}],
         "evidence": [{"path": str(http_path), "sha256": "fixture-boundary-isolated"}],
         "status_evidence_overlays": [{"result_path": str(status_path), "applied_security_ids": [member["security_id"]]}]}
+    if observed_day is not None:
+        packet["status_evidence_overlays"][0]["universe_observed_date"] = observed_day
     original = deepcopy(packet)
     checked, applied = [], []
     monkeypatch.setattr("ashare_daily.sector_pipeline.verify_http_evidence", lambda root, packets: checked.append(packets))
 
-    def revalidate_status(root, actual_universe, parsed, target, path):
+    def revalidate_status(root, actual_universe, parsed, target, path, *, universe_observed_date=None):
         assert actual_universe is universe and target == "2026-09-11" and path == status_path
+        assert universe_observed_date == observed_day
         assert "status_evidence_overlays" not in parsed
         assert "full_day_halt_evidence" not in parsed["rows"][0]
         applied.append(path)

@@ -49,7 +49,7 @@ def load_options(project, path):
     return options
 
 
-def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, max_queries):
+def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, max_queries, universe_observed_date=None):
     """Only dated zero/missing-price observations; no inferred suspension."""
     from ..providers.sector_status import _permission, apply_status_evidence, ENDPOINT, SCHEMA
     from ..providers.baostock_f2 import BaoStockF2Client
@@ -67,7 +67,8 @@ def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, m
     selected = sorted(set(needed))[:max_queries]
     identities = {symbol[:2] + "." + symbol[2:]: {k: members[symbol][k] for k in
         ("security_id", "code", "exchange", "board", "security_type", "metadata_verified")} for symbol in selected}
-    write_new(directory / "manifest.json", {"schema_version": SCHEMA, "target_date": target,
+    date_context = {} if universe_observed_date is None else {"universe_observed_date": universe_observed_date}
+    write_new(directory / "manifest.json", {"schema_version": SCHEMA, "target_date": target, **date_context,
         "scope": "sse_szse_a", "mode": "research", "online_requested": True,
         "environment_label": "daily_observation_live", "permission_basis": "existing_registered_baostock_local_dated_state",
         "universe_snapshot_id": packet["universe"]["snapshot_id"], "source_endpoint": ENDPOINT,
@@ -105,7 +106,8 @@ def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, m
     updated = deepcopy(packet)
     # The shared reader independently replays response hashes, SDK completion,
     # date, identity and calendar. Any malformed proof keeps selection blocked.
-    updated["quotes"] = apply_status_evidence(project, packet["universe"], packet["quotes"], target, result_path)
+    updated["quotes"] = apply_status_evidence(project, packet["universe"], packet["quotes"], target, result_path,
+        universe_observed_date=universe_observed_date)
     updated["daily_status_result"] = str(result_path)
     return updated
 

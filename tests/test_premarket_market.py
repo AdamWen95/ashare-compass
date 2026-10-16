@@ -73,6 +73,42 @@ def test_only_evidenced_full_day_halt_is_removed_from_denominator():
     assert value["status"] == "ready"
 
 
+@pytest.mark.parametrize("mutation", [None, "unverified", "wrong_date", "wrong_identity", "duplicate"])
+def test_dated_quote_halt_overlay_keeps_verified_breadth(mutation):
+    u, q, b = market_inputs((1, 1, 1, -1))
+    q[-1].update(security_id="id3", close=None, full_day_halt_evidence={
+        "value": True, "verified": True, "full_day": True, "source": "baostock",
+        "evidence_id": "dated-halt-proof", "as_of_date": "2026-09-21"})
+    if mutation == "unverified": q[-1]["full_day_halt_evidence"]["verified"] = False
+    elif mutation == "wrong_date": q[-1]["full_day_halt_evidence"]["as_of_date"] = "2026-09-20"
+    elif mutation == "wrong_identity": q[-1]["security_id"] = "different-security"
+    elif mutation == "duplicate": q.append(deepcopy(q[-1]))
+    value = snapshot((u, q, b))
+    if mutation is None:
+        assert value["halted_count"] == 1 and value["missing_count"] == 0
+        assert value["denominator"] == 3 and value["advancing_fraction"] == "1"
+        assert value["components"]["breadth"] == "ready"
+    else:
+        assert value["halted_count"] == 0 and value["missing_count"] == 1
+        assert value["advancing_fraction"] is None
+        assert value["components"]["breadth"] == "unavailable"
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_verified_nonordinary_security_is_outside_ordinary_a_breadth(verified):
+    u, q, b = market_inputs()
+    u['members'].append({'security_id': 'cdr-id', 'exchange': 'SSE', 'code': '689009',
+        'security_type': 'cdr', 'metadata_verified': verified})
+    value = snapshot((u, q, b))
+    if verified:
+        assert value['universe_count'] == value['denominator'] == 5
+        assert value['advancing_fraction'] == '0.6'
+        assert value['missing_count'] == 0 and value['components']['breadth'] == 'ready'
+    else:
+        assert value['advancing_fraction'] is None
+        assert value['components']['breadth'] == 'unavailable'
+
+
 def test_breadth_defense_survives_news_gap_and_known_event_still_matters():
     value = snapshot(market_inputs((-1, -1, -1, -1, 1)))
     assert decide(value)["stance"] == "defend"

@@ -80,3 +80,19 @@ def test_report_on_later_day_is_late_and_not_relabelled_today(tmp_path):
     report = scan_briefs(tmp_path / "outputs", now=when)[0][0]["report"]
     assert report["report_date"] == "2026-10-12"
     assert report["publication_status"] == "late"
+
+
+@pytest.mark.parametrize("stamp,expected", [
+    ("2026-10-12T09:00:00.000115+08:00", "on_time"),
+    ("2026-10-12T09:00:00.999999+08:00", "on_time"),
+    ("2026-10-12T09:00:01+08:00", "late"),
+])
+def test_publication_uses_schedule_second_and_preserves_actual_precision(tmp_path, stamp, expected):
+    from ashare_daily.premarket.archive import publish_brief, scan_briefs
+    when = datetime.fromisoformat(stamp)
+    publish_brief(tmp_path, make_brief(), now=when)
+    archives, problems = scan_briefs(tmp_path / "outputs", now=when)
+    assert not problems
+    report = archives[0]["report"]
+    assert report["publication_status"] == expected
+    assert report["published_at"] == when.isoformat()

@@ -14,7 +14,7 @@ from .lock import ProcessLock, AlreadyRunning
 from ..premarket.archive import publish_brief, scan_briefs
 from ..premarket.candidates import finalize_candidates
 from ..premarket.company import merge_company_reviews
-from ..premarket.contracts import SHANGHAI, aware
+from ..premarket.contracts import SHANGHAI, OBSERVATION_VERSION, aware
 from ..premarket.decisions import decide_stance
 from ..premarket.report import build_brief
 from ..premarket.timing import resolve_schedule, request_window, stage_seconds
@@ -144,7 +144,9 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
                 if max_seconds is not None:
                     value = min(value, max(0, max_seconds-(clock.now()-now).total_seconds()))
                 return value
-            empty_preselection = {"candidates": [], "pending": [], "excluded": [], "directions": [], "baseline_ids": []}
+            empty_preselection = {"candidates": [], "pending": [], "excluded": [], "directions": [], "baseline_ids": [],
+                "observation_only": True, "rule_version": OBSERVATION_VERSION,
+                "market_as_of_date": schedule["market_as_of_date"]}
             prepared = {"market": {"status": "partial", "market_as_of_date": schedule["market_as_of_date"], "issues": ["market_unavailable"]},
                         "preselection": empty_preselection, "company_reviews": {}, "entities": {}}
             for stage in ("market", "news", "decision"):
@@ -174,7 +176,8 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
             adverse = any(e.get("validation_status") == "verified" and e.get("risk_status") == "adverse"
                           and e.get("impact_scope") == "market" for e in events)
             stance = decide_stance(prepared["market"], news_ready=coverage.get("ready") is True,
-                has_direction=bool(prepared["preselection"]["directions"]), adverse_event=adverse)
+                has_direction=bool(prepared["preselection"]["directions"]), adverse_event=adverse,
+                independent=prepared["preselection"].get("observation_only") is True)
             company = merge_company_reviews(prepared["preselection"], news.get("company_reviews", {}), prepared.get("financial_review"))
             candidates = finalize_candidates(prepared["preselection"], company_reviews=company, stance=stance, events=events)
             report = build_brief(schedule=schedule, market=prepared["market"], stance=stance, candidates=candidates,

@@ -1,8 +1,9 @@
 """Versioned, deterministic overall stance; never an account instruction."""
-from .contracts import STANCE_VERSION, decimal
+from .contracts import INDEPENDENT_STANCE_VERSION, STANCE_VERSION, decimal
 
 
-def decide_stance(market: dict, *, news_ready: bool, has_direction: bool, adverse_event: bool = False) -> dict:
+def decide_stance(market: dict, *, news_ready: bool, has_direction: bool,
+                  adverse_event: bool = False, independent: bool = False) -> dict:
     # Producer-verified components remain independent. A subset's sample
     # breadth is deliberately never used as whole-market breadth.
     components = market.get("components", {})
@@ -58,12 +59,12 @@ def decide_stance(market: dict, *, news_ready: bool, has_direction: bool, advers
         label = {"attack": "进攻", "defend": "减仓防守", "hold": "按兵不动", "undetermined": "暂无法判断"}[stance]
         if quality == "partial" and stance in {"attack", "defend"}:
             label = ("进攻倾向" if stance == "attack" else "防守倾向") + "（依据有限）"
-        return {"rule_version": STANCE_VERSION, "stance": stance,
+        return {"rule_version": INDEPENDENT_STANCE_VERSION if independent else STANCE_VERSION, "stance": stance,
                 "label": label, "directional_bias": bias,
                 "reason_code": reason, "reasons": reasons, "scope": "overall_market_research",
                 "basis_scope": scope, "used_components": used if scope != "none" else [],
                 "analysis": analysis, "limitations": limits, "evidence_status": quality,
-                "conditional": quality != "complete", "direction_available": has_direction is True,
+                "conditional": quality != "complete", **({} if independent else {"direction_available": has_direction is True}),
                 "probability": None, "validation_status": "heuristic_not_performance_validated",
                 "invalidation": ["趋势、市场广度、成交活跃度或事件证据变化时重新判断"],
                 "notice": "整体市场研究倾向，不对应个人持仓或交易数量"}
@@ -81,10 +82,13 @@ def decide_stance(market: dict, *, news_ready: bool, has_direction: bool, advers
     positive = active is not False and ((trend_up is True and breadth_up is not False) or (trend_up is None and breadth_up is True))
     if positive and adverse_event:
         return result("hold", "event_pending", ["偏强量价受到已核验且未解决的市场反面证据削弱，等待风险条件澄清"])
-    if positive and has_direction is not True:
+    if positive and not independent and has_direction is not True:
         return result("hold", "no_qualified_direction", ["已有市场指标偏强，但尚无通过规则的关注方向，等待具体方向确认"], "bullish")
     if positive:
         if trend_up is True and breadth_up is True and active is True:
-            return result("attack", "trend_breadth_activity", ["指数趋势、市场上涨广度和成交活跃度共同支持，存在合格关注方向"], "bullish")
-        return result("attack", "available_evidence_positive", ["已有有效指标偏强且存在合格关注方向，给出条件性进攻倾向；缺失项仍待确认"], "bullish")
+            reason = "指数趋势、市场上涨广度和成交活跃度共同支持进攻倾向" if independent else "指数趋势、市场上涨广度和成交活跃度共同支持，存在合格关注方向"
+            return result("attack", "trend_breadth_activity", [reason], "bullish")
+        reason = ("已有有效市场指标偏强，给出条件性进攻倾向；缺失项仍待确认" if independent else
+                  "已有有效指标偏强且存在合格关注方向，给出条件性进攻倾向；缺失项仍待确认")
+        return result("attack", "available_evidence_positive", [reason], "bullish")
     return result("hold", "mixed", ["已有有效信号分歧或未达到偏强条件；等待信号改善，原因不是单纯缺少资料"])

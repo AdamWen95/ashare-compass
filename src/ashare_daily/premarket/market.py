@@ -6,6 +6,7 @@ from decimal import Decimal
 from statistics import median
 
 from ..sector_selection import confirmed_full_day_halt, quote_issues, symbol_of
+from ..universe import KNOWN_OTHER_TYPES
 from .contracts import decimal, text_number
 
 
@@ -40,11 +41,16 @@ def _benchmark(packet: dict, market_date: str) -> dict:
 
 def market_snapshot(*, universe: dict, quotes: list[dict], benchmark: dict, market_date: str) -> dict:
     """Do not infer whole-market breadth from the selected industry subset."""
-    members = universe.get("members", [])
+    all_members = universe.get("members", [])
+    # Discovery retains identified exclusions (for example CDRs) for audit.
+    # The breadth denominator follows the verified ordinary-A count, while
+    # unknown or unverified types still block a whole-market conclusion.
+    members = [m for m in all_members if not (m.get("metadata_verified") is True
+        and m.get("exchange") in {"SSE", "SZSE"} and m.get("security_type") in KNOWN_OTHER_TYPES)]
     issues, changes, halted, missing = [], [], [], []
     if universe.get("structural_verified") is not True:
         issues.append("universe_unverified")
-    identities = [m.get("security_id") for m in members]
+    identities = [m.get("security_id") for m in all_members]
     if (None in identities or len(identities) != len(set(identities))
             or universe.get("ordinary_a_count") != len(members) or not members
             or any(m.get("metadata_verified") is not True or m.get("security_type") != "ordinary_a"
@@ -56,7 +62,12 @@ def market_snapshot(*, universe: dict, quotes: list[dict], benchmark: dict, mark
     for member in members:
         identity = member.get("security_id")
         rows = lookup[symbol_of(member)]
-        if confirmed_full_day_halt(member, market_date):
+        # Dated status overlays preserve the original universe. Count the
+        # independently checked quote proof without rewriting that universe.
+        overlay = rows[0].get("full_day_halt_evidence") if (len(rows) == 1
+            and rows[0].get("security_id") == identity and rows[0].get("trade_date") == market_date) else None
+        supplemented = {"statuses": {"suspended": overlay}} if isinstance(overlay, dict) else {}
+        if confirmed_full_day_halt(member, market_date) or confirmed_full_day_halt(supplemented, market_date):
             halted.append(identity)
             continue
         if len(rows) != 1 or quote_issues(rows[0], market_date):

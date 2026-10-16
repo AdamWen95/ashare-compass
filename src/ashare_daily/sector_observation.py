@@ -60,6 +60,9 @@ def _production(selection):
     if (selection.get("purpose", "production") != "production" or selection.get("production_eligible") is False
             or selection["selection_id"].startswith("validation-") or selection.get("selection_verified") is not True):
         raise ValueError("daily observations require a verified production selection")
+    if selection.get("observation_only") is True and (selection.get("rule_version") != "premarket-relative-observation-v1"
+            or len(selection["members"]) > 15):
+        raise ValueError("premarket_observation_pool_invalid")
 
 
 def _sealed(value):
@@ -190,6 +193,10 @@ def run_observation(root, selection, config, *, output_directory, online=True, m
     probe_ids = [row["security_id"] for row in sorted(
         (row for row in technical["evaluations"] if row["technical_status"] == "pass"),
         key=lambda row: (row["technical_rank"], row["symbol"], row["security_id"]))]
+    if selection.get("observation_only") is True:
+        # Relative strength can precede an absolute trend; independently check
+        # risk for every member of the bounded observation pool.
+        probe_ids = [member["security_id"] for member in selection["members"]]
     exchange = {"status": "not_requested" if require_delisting_check else "not_required_by_policy",
         "source_health": [], "bundle_file": None}
     budget = remaining(60)

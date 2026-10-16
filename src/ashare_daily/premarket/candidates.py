@@ -7,6 +7,9 @@ from .contracts import RECOMMENDATION_VERSION, decimal
 
 
 def preselect_candidates(selection: dict, evaluations: list[dict], reference: dict) -> dict:
+    if selection.get("observation_only") is True:
+        from .observation_candidates import preselect_observations
+        return preselect_observations(selection, evaluations, reference)
     if (reference.get("selection_id") != selection.get("selection_id")
             or reference.get("trade_date") != selection.get("target_date")):
         raise ValueError("premarket_score_binding_mismatch")
@@ -73,6 +76,9 @@ def preselect_candidates(selection: dict, evaluations: list[dict], reference: di
 
 
 def finalize_candidates(preselection: dict, *, company_reviews: dict, stance: dict, events: list[dict]) -> dict:
+    if preselection.get("observation_only") is True:
+        from .observation_candidates import finalize_observations
+        return finalize_observations(preselection, company_reviews=company_reviews, stance=stance, events=events)
     focus, pending, excluded = [], deepcopy(preselection["pending"]), []
     for raw in preselection["candidates"]:
         row = deepcopy(raw)

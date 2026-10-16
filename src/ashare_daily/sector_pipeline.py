@@ -150,7 +150,8 @@ def revalidate_dated_quote_archive(root, packet, universe, target):
         from .providers.sector_status import apply_status_evidence
         for overlay in overlays:
             result = apply_status_evidence(root, universe, result, target,
-                local_path(root, resolve_archived_path(overlay["result_path"], anchor=root)))
+                local_path(root, resolve_archived_path(overlay["result_path"], anchor=root)),
+                universe_observed_date=overlay.get("universe_observed_date"))
     return result
 
 

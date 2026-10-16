@@ -150,6 +150,8 @@ def test_production_adapter_keeps_market_facts_when_stock_preparation_fails(tmp_
     monkeypatch.setattr(service, "supplement_zero_quotes", lambda project, packet, *a, **k: packet)
     selection = {"selection_verified": failure != "selection", "selection_id": "s", "members": [], "selected_sectors": [], "target_date": "2026-09-21"}
     monkeypatch.setattr(service, "evaluate", lambda *a, **k: (selection, {}))
+    # This test injects a stock-stage failure, not source/selection provenance.
+    monkeypatch.setattr(service, "build_observation_selection", lambda *a: selection)
     monkeypatch.setattr(service, "archive_selection", lambda *a: None)
     def fail_observation(*a, **k): raise ValueError("stock_history_unavailable")
     monkeypatch.setattr(service, "_observe", fail_observation)

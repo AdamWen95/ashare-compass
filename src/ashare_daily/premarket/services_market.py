@@ -15,13 +15,15 @@ from ..reference_strategy import load_reference_inputs
 from ..reports.observation import build_report
 from ..universe_service import sync_date, load_universe_config
 from ..financial_review import collect_financial_review
-from .contracts import SHANGHAI
+from .contracts import SHANGHAI, OBSERVATION_VERSION
 from .candidates import preselect_candidates
 from .market import market_snapshot
 from .timing import universe_budget_seconds
+from .selection import build_observation_selection
 
 
-def _available_market(project, sector, packet, selection, schedule, directory, master_day, seconds, *, reason, online, benchmark=None):
+def _available_market(project, sector, packet, selection, schedule, directory, master_day, seconds, *, reason, online,
+                      benchmark=None, evaluations=None, allow_unknown=True):
     """Keep independently checked market facts after a stock-only preparation gap."""
     gaps = [reason]
     if benchmark is None and seconds > 1:
@@ -34,9 +36,24 @@ def _available_market(project, sector, packet, selection, schedule, directory, m
         benchmark=benchmark or {}, market_date=schedule["market_as_of_date"])
     market.update(status="partial", preparation_limitations=gaps)
     selection_ready = selection.get("selection_verified") is True
-    result = {"market": market, "preselection": {"candidates": [], "pending": [], "excluded": [], "baseline_ids": [],
-        "directions": deepcopy(selection.get("selected_sectors", [])) if selection_ready else []},
-        "company_reviews": {}, "financial_review": None, "entities": {}, "selection_id": selection["selection_id"],
+    preselection = {"candidates": [], "pending": [], "excluded": [], "baseline_ids": [],
+        "selection_id": selection["selection_id"], "market_as_of_date": schedule["market_as_of_date"],
+        "observation_only": selection.get("observation_only") is True,
+        "rule_version": OBSERVATION_VERSION if selection.get("observation_only") is True else "premarket-recommendation-v1",
+        "directions": deepcopy(selection.get("selected_sectors", [])) if selection_ready else []}
+    if selection_ready and selection.get("observation_only") is True and (evaluations is not None or allow_unknown):
+        # The dated relative-strength evidence survives missing history. These
+        # rows explicitly say unknown; they do not substitute prices or scores.
+        rows = deepcopy(evaluations) if evaluations is not None else [{"security_id": m["security_id"], "symbol": {"SSE": "sh.", "SZSE": "sz."}[m["exchange"]] + m["code"],
+            "name": m.get("name"), "technical_status": "unknown", "eligibility_status": "pending",
+            "metrics": {}, "technical_conditions": [], "eligibility_gaps": [reason], "data_issues": [reason]}
+            for m in selection["members"]]
+        preselection = preselect_candidates(selection, rows,
+            {"selection_id": selection["selection_id"], "trade_date": selection["target_date"], "records": []})
+    result = {"market": market, "preselection": preselection,
+        "company_reviews": {}, "financial_review": None,
+        "entities": {row["symbol"]: {key: row[key] for key in ("security_id", "name", "sector_ids")}
+            for row in preselection["candidates"]}, "selection_id": selection["selection_id"],
         "universe_observed_date": master_day, "preparation_issues": gaps}
     atomic_json(directory / "market_preparation.json", result)
     return result
@@ -67,18 +84,33 @@ def collect_market(project, config, schedule, directory, seconds, run_id, *, uni
                             max_seconds=min(left(), seconds * .4), universe_date=master_day)
     if left() > 1:
         packet = supplement_zero_quotes(project, packet, schedule["market_as_of_date"], source_dir / "dated_status",
-            max_seconds=min(options["max_quote_status_seconds"], left()), max_queries=options["max_quote_status_queries"])
+            max_seconds=min(options["max_quote_status_seconds"], left()), max_queries=options["max_quote_status_queries"],
+            universe_observed_date=master_day if master_day != schedule["market_as_of_date"] else None)
+    return prepare_collected_market(project, config, schedule, directory, left(), packet, master_day=master_day)
+
+
+def prepare_collected_market(project, config, schedule, directory, seconds, packet, *, master_day):
+    """Prepare bounded observations from already acquired, validated inputs."""
+    began = time.monotonic()
+    def left(): return max(0.0, seconds - (time.monotonic() - began))
+    sector = load_config(project, config.sector_config)
+    options = load_options(project, config.observation_config)
     selection, memberships = evaluate(packet["universe"], packet["catalog"], packet["memberships"], packet["quotes"],
         target=schedule["market_as_of_date"], cutoff=datetime.now(SHANGHAI).isoformat(), config=sector, calendar=packet["calendar"])
+    archive_selection(project, sector, selection, memberships, packet)
+    selection = build_observation_selection(selection, packet)
     archive_selection(project, sector, selection, memberships, packet)
     if not selection.get("selection_verified"):
         return _available_market(project, sector, packet, selection, schedule, directory, master_day, left(),
             reason="方向或个股研究集合未完整核验，仅使用已有市场事实", online=True)
-    benchmark = None
+    benchmark = observation = base = None
     try:
         if left() < 1: raise TimeoutError("market_deadline")
         observation = _observe(project, selection, sector, directory / "observation", left(),
             options["require_delisting_check"], options["strategy_config"], config.eligibility_sources_config)
+        # Preserve verified exclusions before optional history-score processing.
+        base = build_report(selection, observation, {"status": "skipped"},
+            planned_cutoff=datetime.now(SHANGHAI).isoformat(), generated_at=datetime.now(SHANGHAI).isoformat())
         _, inputs, _ = load_reference_inputs(local_path(project, observation["evidence_directory"]))
         benchmark = inputs["benchmark"]
         if not selection["members"] and left() >= 1:
@@ -86,9 +118,6 @@ def collect_market(project, config, schedule, directory, seconds, run_id, *, uni
         elif benchmark.get("verified") is not True and left() >= 1:
             benchmark = prepare_benchmark(project, selection, sector, online=False, max_seconds=min(20, left()), required_for_market=True)
         reference = _reference_review(project, selection, observation, options, directory / "reference")
-        # Reuse the full validated merge of quantity/price and independent eligibility.
-        base = build_report(selection, observation, {"status": "skipped"},
-            planned_cutoff=datetime.now(SHANGHAI).isoformat(), generated_at=datetime.now(SHANGHAI).isoformat())
         if reference is None:
             reference = {"selection_id": selection["selection_id"], "trade_date": selection["target_date"], "records": []}
         preselection = preselect_candidates(selection, base["evaluations"], reference)
@@ -97,7 +126,8 @@ def collect_market(project, config, schedule, directory, seconds, run_id, *, uni
         # read validated cache, but cannot silently issue a second online call.
         return _available_market(project, sector, packet, selection, schedule, directory, master_day, left(),
             reason="个股历史或评分准备未完成，保留已核验市场事实（" + type(exc).__name__ + "）",
-            online=False, benchmark=benchmark)
+            online=False, benchmark=benchmark, evaluations=base["evaluations"] if base is not None else None,
+            allow_unknown=observation is None)
     finance_policy = options.get("financial_review", {})
     financials = None
     if finance_policy.get("enabled") and left() >= 1:

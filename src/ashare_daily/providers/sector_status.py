@@ -140,7 +140,30 @@ def _response(root, ref, symbol, identity, target, mode, refs, *, cached):
         "evidence_id": "baostock-status-" + _digest({"security_id": identity["security_id"], "target": target, "source_hash": source_hash})}
 
 
-def apply_status_evidence(root, universe, quotes, target, evidence_path):
+def _universe_date(universe, target, observed_date):
+    """Opt in to a frozen morning universe without relabeling its source dates."""
+    universe_day = target if observed_date is None else observed_date
+    if (not isinstance(universe_day, str) or date.fromisoformat(universe_day).isoformat() != universe_day
+            or universe.get("scope") != "sse_szse_a" or universe.get("requested_date") != universe_day
+            or universe.get("resolved_trade_date") != universe_day or universe.get("universe_verified") is not True
+            or universe.get("calendar_verified") is not True or universe.get("collection_ready") is not True):
+        raise ValueError("status_universe_date_or_verification_invalid")
+    if observed_date is not None:
+        if not target < universe_day <= datetime.now(SHANGHAI).date().isoformat():
+            raise ValueError("status_premarket_universe_date_invalid")
+        observed = _stamp(universe.get("observed_at", ""), universe_day)
+        if observed.astimezone(SHANGHAI).date().isoformat() != universe_day:
+            raise ValueError("status_premarket_universe_observation_mismatch")
+        from ..universe import _json
+        body = {key: value for key, value in universe.items() if key not in {"snapshot_id", "content_hash"}}
+        digest = hashlib.sha256(_json(body).encode("utf-8")).hexdigest()
+        if (universe.get("content_hash") != digest
+                or universe.get("snapshot_id") != "universe-" + universe_day + "-" + digest[:20]):
+            raise ValueError("status_premarket_universe_hash_mismatch")
+    return universe_day
+
+
+def apply_status_evidence(root, universe, quotes, target, evidence_path, *, universe_observed_date=None):
     """Return a new quote packet after revalidating actual dated SDK evidence."""
     root = Path(root).resolve()
     if not isinstance(target, str) or date.fromisoformat(target).isoformat() != target:
@@ -148,10 +171,7 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path):
     mode = universe.get("mode")
     if mode not in {"research", "offline_test"}:
         raise ValueError("status_universe_mode_invalid")
-    if (universe.get("scope") != "sse_szse_a" or universe.get("requested_date") != target
-            or universe.get("resolved_trade_date") != target or universe.get("universe_verified") is not True
-            or universe.get("calendar_verified") is not True or universe.get("collection_ready") is not True):
-        raise ValueError("status_universe_date_or_verification_invalid")
+    universe_day = _universe_date(universe, target, universe_observed_date)
     _permission(root)
     refs = {}
     for ref in quotes.get("file_refs", []):
@@ -162,6 +182,7 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path):
             or result.get("target_date") != target or manifest.get("target_date") != target
             or manifest.get("mode") != mode or manifest.get("scope") != "sse_szse_a"
             or manifest.get("universe_snapshot_id") != universe.get("snapshot_id")
+            or manifest.get("universe_observed_date", universe_observed_date) != universe_observed_date
             or manifest.get("source_endpoint") != ENDPOINT or not manifest.get("permission_basis")
             or manifest.get("online_requested") is not (mode == "research")):
         raise ValueError("status_manifest_scope_date_identity_or_provenance_invalid")
@@ -181,6 +202,14 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path):
     if (metadata["raw_hash"] != cal.get("source_raw_hash")
             or days.get(date.fromisoformat(target)) is not True):
         raise ValueError("status_calendar_evidence_invalid")
+    if universe_observed_date is not None:
+        first, last = date.fromisoformat(target), date.fromisoformat(universe_day)
+        span = {day: opened for day, opened in days.items() if first <= day <= last}
+        # Require every calendar date, including weekends/closures. A verified
+        # older trading day alone cannot prove it is the preceding session.
+        if (len(span) != (last - first).days + 1 or days.get(last) is not True
+                or any(opened for day, opened in span.items() if first < day < last)):
+            raise ValueError("status_premarket_previous_session_unverified")
     members, rows = {}, {}
     for member in universe.get("members", []):
         symbol = {"SSE": "sh.", "SZSE": "sz."}.get(member.get("exchange"), "?") + member.get("code", "")
@@ -236,6 +265,8 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path):
     overlay = {"schema_version": SCHEMA, "target_date": target, "result_path": str(result_path),
         "result_sha256": result_hash, "applied_security_ids": sorted(applied), "network_requests": 0,
         "kind": "dated_status_overlay_original_universe_and_quote_facts_preserved"}
+    if universe_observed_date is not None:
+        overlay["universe_observed_date"] = universe_observed_date
     existing = new_quotes.setdefault("status_evidence_overlays", [])
     if overlay not in existing:
         existing.append(overlay)

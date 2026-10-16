@@ -125,7 +125,8 @@ def test_live_service_wiring_keeps_local_bodies_out_of_model_bundle(tmp_path, mo
     def collect(**kwargs):
         seen.append(kwargs)
         kwargs["request_budget"].reserve("licensed", "index", "https://www.mofcom.gov.cn/")
-        return {"evidence": [{"evidence_id": "licensed-only"}], "bundle_file": "legacy.json"}
+        return {"evidence": [{"evidence_id": "licensed-only"}], "bundle_file": "legacy.json",
+                "finished_at": datetime.now(SHANGHAI).isoformat()}
     def archive(**kwargs):
         assert kwargs["collection"]["evidence"] == [{"evidence_id": "licensed-only"}]
         return {"bundle_file": "licensed.json"}

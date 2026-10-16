@@ -64,7 +64,7 @@ class PremarketServices:
         actual_cutoff = schedule["news_cutoff_at"] if until <= 300 else datetime.now(SHANGHAI).isoformat()
         # Licensed text for the existing model is an optional supplement after
         # the required local sources. It shares every HTTP reservation.
-        collection, bundle_file = {}, None
+        collection, bundle_file, collection_cutoff = {}, None, None
         remaining = min(session.remaining(), (aware(schedule["news_cutoff_at"])-datetime.now(SHANGHAI)).total_seconds())
         if session.request_count < session.budget.maximum and remaining > 1:
             try:
@@ -72,8 +72,12 @@ class PremarketServices:
                     sample_symbols={symbol: value["name"] for symbol, value in prepared.get("entities", {}).items()},
                     output_dir=directory / "sources", include_background=True,
                     max_seconds=max(.001, remaining-.1), pending_cutoff=until <= 300, request_budget=session.budget)
+                # The scheduled ceiling can still be in the future. Archive
+                # the completed acquisition, not a promise of later coverage;
+                # each source's covered_until_at remains independently bounded.
+                collection_cutoff = min(aware(schedule["news_cutoff_at"]), aware(collection["finished_at"])).isoformat()
                 bundle = archive_materials(collection=collection, database=local_path(self.project, self.config.database),
-                    output_dir=directory / "context", start=window["start_at"], cutoff=schedule["news_cutoff_at"])
+                    output_dir=directory / "context", start=window["start_at"], cutoff=collection_cutoff)
                 bundle_file = bundle["bundle_file"]
             except (ValueError, OSError, RuntimeError) as exc:
                 local["supplement_error"] = type(exc).__name__
@@ -86,6 +90,7 @@ class PremarketServices:
         coverage["uncovered_roles"] = ["央行及国务院直接政策栏目", "证监会及上交所监管通知", "海外市场、汇率及期货的综合资讯"]
         result = {"coverage": coverage, "bundle_file": bundle_file, "company_reviews": reviews,
                   "local_events": local["events"], "window": window, "collection_file": collection.get("bundle_file"),
+                  "collection_cutoff_at": collection_cutoff,
                   "local_sources_directory": str(session.directory), "supplement_error": local.get("supplement_error")}
         atomic_json(directory / "news_preparation.json", result)
         return result

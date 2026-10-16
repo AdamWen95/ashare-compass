@@ -42,7 +42,10 @@ def publish_brief(project: Path, report: dict, *, now) -> dict:
     output = Path(project).absolute() / "outputs"
     draft = now < aware(report["publication_due_at"])
     if not draft:
-        report.update(published_at=now.isoformat(), publication_status="on_time" if now <= aware(report["publication_due_at"]) else "late")
+        # The schedule has second precision; retain the actual subsecond time
+        # without treating normal wakeup latency within that second as late.
+        on_time = now.replace(microsecond=0) <= aware(report["publication_due_at"]).replace(microsecond=0)
+        report.update(published_at=now.isoformat(), publication_status="on_time" if on_time else "late")
     identity = "brief-" + _hash(encoded(report))[:24]
     report["report_id"] = identity
     base = output / RELATIVE_ROOT
