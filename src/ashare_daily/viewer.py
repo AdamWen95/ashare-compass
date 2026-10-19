@@ -1103,9 +1103,9 @@ def _legacy_daily(st, reports: list[ReportArchive], runs: list[dict]) -> None:
 def render_app(output_root: Path) -> None:
     """Render one archive family per interaction, without persistent trust caches."""
     import streamlit as st
-    from ashare_daily.viewer_dashboard import apply_theme, render_masthead
+    from ashare_daily.viewer_dashboard import FAVICON, apply_theme, render_masthead
 
-    st.set_page_config(page_title="今日方向简报", page_icon="📖", layout="wide")
+    st.set_page_config(page_title="今日方向简报", page_icon=FAVICON, layout="wide")
     apply_theme(st)
     st.sidebar.button("刷新展示", key="refresh_display", help="重新读取已经保存的报告与运行记录，不生成新日报。")
     section = st.sidebar.selectbox("阅读栏目", ["最新简报", "盘前简报历史", "行业研究历史", "行业就绪历史", "历史样本日报", "运行记录", "工程验收（非生产）"],

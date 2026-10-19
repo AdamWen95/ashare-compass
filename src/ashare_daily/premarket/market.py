@@ -36,6 +36,8 @@ def _benchmark(packet: dict, market_date: str) -> dict:
             "return5": text_number(closes[-1] / closes[-6] - 1),
             "amount": amount, "previous_mean_amount5": mean_amount,
             "activity_status": "ready" if amount is not None else "unavailable",
+            "state_window": {"schema_version": "premarket-state-window-v1", "dates": list(expected),
+                "closes": [text_number(value) for value in closes]},
             "amount_scope": "sse_composite_index", "market_as_of_date": market_date}
 
 
@@ -70,7 +72,11 @@ def market_snapshot(*, universe: dict, quotes: list[dict], benchmark: dict, mark
         if confirmed_full_day_halt(member, market_date) or confirmed_full_day_halt(supplemented, market_date):
             halted.append(identity)
             continue
-        if len(rows) != 1 or quote_issues(rows[0], market_date):
+        identity_invalid = len(rows)==1 and (
+            ('security_id' in rows[0] or universe.get('requested_date')) and rows[0].get('security_id')!=identity
+            or universe.get('requested_date') and any(rows[0].get('identity',{}).get(k)!=member.get(k)
+                for k in ('security_id','code','exchange','board','security_type','metadata_verified')))
+        if len(rows) != 1 or identity_invalid or quote_issues(rows[0], market_date):
             missing.append(identity)
             continue
         try:

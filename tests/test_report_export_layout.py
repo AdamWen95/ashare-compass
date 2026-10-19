@@ -123,7 +123,7 @@ render_morning(st, archives, root, now=now, runs=[])
     assert not app.exception
     body = downloads[key]
     text = body.decode("utf-8") if isinstance(body, bytes) else body
-    assert "方向研究室" in text and "LEGACY FROZEN EXPORT" not in text
+    assert ('今日方向简报' if kind=='premarket' else '方向研究室') in text and "LEGACY FROZEN EXPORT" not in text
     assert "class=\"report-nav\"" in text
     assert {p: p.read_bytes() for p in directory.iterdir()} == before
     # Non-HTML artifacts remain byte-for-byte exports of the verified archive.

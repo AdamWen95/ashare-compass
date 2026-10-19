@@ -69,7 +69,7 @@ def test_premarket_market_collection_accepts_prior_session_halt_evidence(bridge,
     monkeypatch.setattr(services_market, "load_options", lambda *a: {"max_quote_status_seconds": 5,
         "max_quote_status_queries": 2, "require_delisting_check": False, "strategy_config": "strategy"})
     monkeypatch.setattr(services_market, "load_universe_config", lambda *a: SimpleNamespace(calendar_provider="exchange_calendars"))
-    monkeypatch.setattr(services_market, "_read_snapshot", lambda *a: deepcopy(universe))
+    monkeypatch.setattr(services_market, "_read_snapshot", lambda *a, **kw: deepcopy(universe))
     monkeypatch.setattr(services_market, "collect_inputs", lambda *a, **k: deepcopy(packet))
     def history_unavailable(*a, **k):
         raise ValueError("offline_history_unavailable")

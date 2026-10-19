@@ -8,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 from test_premarket_market import market_inputs, snapshot
 from test_premarket_report import DUE, STAMP, make_brief
 from test_premarket_timing import resolve
+from premarket_ui_helpers import morning_content
 
 
 def observation_inputs(*, empty=False):
@@ -221,8 +222,9 @@ render_morning(st, archives, root, now=now, runs=[])
 '''
     app = AppTest.from_string(script).run()
     assert not app.exception
-    text = " ".join(str(e.value) for kind in (app.markdown, app.caption, app.info, app.warning, app.subheader) for e in kind)
-    assert text.count("观察公司") == 1
+    content=morning_content(app)
+    text = ' '.join(content.parts)
+    assert content.stock_cards==1 and text.count('观察公司')==2  # One card and one visible-on-expand audit row.
     for fact in ("相对抗跌", "0.50", "0.10", "8000.00 万元", "若后续仍强于行业", "观察依据失效", "单日强弱不代表上涨趋势", "盈利质量待核验"):
         assert fact in text
     assert len(app.get("download_button")) == 3

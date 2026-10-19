@@ -225,7 +225,8 @@ def archive_selection(root, config, value, membership_rows, source_inputs):
     return directory
 
 
-def collect_inputs(root, config, target, evidence_directory, *, max_seconds, source_run=None, reuse_only=False, universe_date=None):
+def collect_inputs(root, config, target, evidence_directory, *, max_seconds, source_run=None, reuse_only=False, universe_date=None,
+                   allow_partial=False):
     """Only catalog, memberships and ONE-DAY quotes; no history import here."""
     from .providers.sina_sectors import SinaSectorProvider
     began = elapsed.monotonic()
@@ -237,7 +238,8 @@ def collect_inputs(root, config, target, evidence_directory, *, max_seconds, sou
     if not date.fromisoformat(target) <= date.fromisoformat(universe_day) <= datetime.now(SHANGHAI).date():
         raise ValueError("universe_observation_date_invalid")
     try:
-        universe = _read_snapshot(root, {"scope": config["market_scope"]}, universe_day, universe_config)
+        universe = _read_snapshot(root, {"scope": config["market_scope"]}, universe_day, universe_config,
+            **({'allow_partial': True} if allow_partial else {}))
     except ValueError as exc:
         if str(exc) != "target_universe_snapshot_missing" or universe_day != datetime.now(SHANGHAI).date().isoformat():
             raise
@@ -246,7 +248,8 @@ def collect_inputs(root, config, target, evidence_directory, *, max_seconds, sou
         stamp = datetime.now(SHANGHAI)
         sync_date(project=root, config_path=config["universe_config"], target=date.fromisoformat(universe_day),
                   cutoff_at=stamp.isoformat(), now=stamp)
-        universe = _read_snapshot(root, {"scope": config["market_scope"]}, universe_day, universe_config)
+        universe = _read_snapshot(root, {"scope": config["market_scope"]}, universe_day, universe_config,
+            **({'allow_partial': True} if allow_partial else {}))
     calendar = _cached_calendar(root, [config["calendar_cache"], universe_config.calendar_cache], target)
     if not calendar.get("calendar_verified") or calendar.get("calendar", {}).get(target) is not True:
         raise ValueError("calendar_unverified_no_weekday_fallback")
@@ -267,7 +270,7 @@ def collect_inputs(root, config, target, evidence_directory, *, max_seconds, sou
     try:
         if config["taxonomy"] == "exchange_industry_section_v1":
             from .providers.exchange_industry import exchange_industry_snapshot
-            exchange = exchange_industry_snapshot(root, universe)
+            exchange = exchange_industry_snapshot(root, universe, **({'allow_partial': True} if allow_partial else {}))
             catalog, memberships = exchange["catalog"], exchange["memberships"]
         else:
             same_taxonomy = cached and cached["catalog"].get("taxonomy") == config["taxonomy"]

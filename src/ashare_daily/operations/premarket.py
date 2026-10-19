@@ -15,7 +15,7 @@ from ..premarket.archive import publish_brief, scan_briefs
 from ..premarket.candidates import finalize_candidates
 from ..premarket.company import merge_company_reviews
 from ..premarket.contracts import SHANGHAI, OBSERVATION_VERSION, aware
-from ..premarket.decisions import decide_stance
+from ..premarket.market_states import classify_market_state
 from ..premarket.report import build_brief
 from ..premarket.timing import resolve_schedule, request_window, stage_seconds
 from ..sector_selection import digest
@@ -173,14 +173,13 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
                     if stage == "decision": interpreted = {}
             coverage = news.get("coverage", {"ready": False, "roles": {}})
             events = news.get("local_events", []) + interpreted.get("events", [])
-            adverse = any(e.get("validation_status") == "verified" and e.get("risk_status") == "adverse"
-                          and e.get("impact_scope") == "market" for e in events)
-            stance = decide_stance(prepared["market"], news_ready=coverage.get("ready") is True,
-                has_direction=bool(prepared["preselection"]["directions"]), adverse_event=adverse,
-                independent=prepared["preselection"].get("observation_only") is True)
+            assessment = classify_market_state(prepared["market"], news_ready=coverage.get("ready") is True, events=events)
+            record.setdefault('model_summary',{'status':'unavailable','call_count':None})
+            record['module_statuses']['model']=record['model_summary'].get('status')
+            record['module_statuses']['decision']='insufficient' if assessment['state']=='undetermined' else 'ok'
             company = merge_company_reviews(prepared["preselection"], news.get("company_reviews", {}), prepared.get("financial_review"))
-            candidates = finalize_candidates(prepared["preselection"], company_reviews=company, stance=stance, events=events)
-            report = build_brief(schedule=schedule, market=prepared["market"], stance=stance, candidates=candidates,
+            candidates = finalize_candidates(prepared["preselection"], company_reviews=company, stance=assessment, events=events)
+            report = build_brief(schedule=schedule, market=prepared["market"], market_state=assessment, candidates=candidates,
                 events=events, coverage=coverage, previous=prior, generated_at=clock.now().isoformat())
             covered_until = coverage.get("covered_until_at")
             if coverage.get("ready") is True and covered_until and aware(window["start_at"]) < aware(covered_until) <= aware(schedule["news_cutoff_at"]):

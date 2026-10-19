@@ -8,11 +8,15 @@ from zoneinfo import ZoneInfo
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SCHEMA = "premarket-brief-v2"
 OBSERVATION_SCHEMA = "premarket-brief-v3"
-READABLE_SCHEMAS = {"premarket-brief-v1", SCHEMA, OBSERVATION_SCHEMA}
+COVERAGE_SCHEMA = 'premarket-brief-v4'
+STATE_SCHEMA = 'premarket-brief-v5'
+OBSERVATION_SCHEMAS = {OBSERVATION_SCHEMA, COVERAGE_SCHEMA, STATE_SCHEMA}
+READABLE_SCHEMAS = {"premarket-brief-v1", SCHEMA, *OBSERVATION_SCHEMAS}
 STANCE_VERSION = "premarket-stance-v2"
 INDEPENDENT_STANCE_VERSION = "premarket-stance-v3"
 RECOMMENDATION_VERSION = "premarket-recommendation-v1"
 OBSERVATION_VERSION = "premarket-observation-v1"
+COVERAGE_VERSION = 'premarket-observation-v2'
 
 
 def aware(value: str | datetime) -> datetime:

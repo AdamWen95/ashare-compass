@@ -6,24 +6,35 @@ from datetime import date
 
 from ..sector_selection import digest
 from .contracts import (SCHEMA, READABLE_SCHEMAS, STANCE_VERSION, RECOMMENDATION_VERSION,
-    OBSERVATION_SCHEMA, INDEPENDENT_STANCE_VERSION, OBSERVATION_VERSION, aware, decimal)
+    OBSERVATION_SCHEMA, OBSERVATION_SCHEMAS, COVERAGE_SCHEMA, COVERAGE_VERSION, STATE_SCHEMA,
+    INDEPENDENT_STANCE_VERSION, OBSERVATION_VERSION, aware, decimal)
+from .coverage import validate_coverage, coverage_notice, comparison_label
 from .decisions import decide_stance
+from .market_states import classify_market_state, VERSION as STATE_VERSION
 
 NOTICE = "3–10个交易日短线波段研究；姿态是整体市场倾向，评分不是上涨概率。资料缺失不代表没有风险。"
 
 
-def build_brief(*, schedule, market, stance, candidates, events, coverage, previous, generated_at) -> dict:
+def build_brief(*, schedule, market, candidates, events, coverage, previous, generated_at,
+                stance=None, market_state=None) -> dict:
+    if (stance is None)==(market_state is None):
+        raise ValueError('premarket_assessment_required')
+    phased = market_state is not None
+    assessment = market_state if phased else stance
     if market.get("market_as_of_date") != schedule["market_as_of_date"]:
         raise ValueError("premarket_market_date_mismatch")
     generated = aware(generated_at)
     preselection = candidates.get("preselection", {})
     observation = preselection.get("observation_only") is True
+    if phased and not observation:
+        raise ValueError('premarket_state_requires_observation_contract')
     if observation and preselection.get("market_as_of_date") != schedule["market_as_of_date"]:
         raise ValueError("premarket_observation_date_mismatch")
-    if observation and preselection.get("rule_version") != OBSERVATION_VERSION:
+    if observation and preselection.get("rule_version") not in {OBSERVATION_VERSION, COVERAGE_VERSION}:
         raise ValueError("premarket_observation_version_invalid")
-    schema = OBSERVATION_SCHEMA if observation else SCHEMA
-    recommendation = OBSERVATION_VERSION if observation else RECOMMENDATION_VERSION
+    covered = observation and preselection.get('rule_version') == COVERAGE_VERSION
+    schema = STATE_SCHEMA if phased else COVERAGE_SCHEMA if covered else OBSERVATION_SCHEMA if observation else SCHEMA
+    recommendation = preselection['rule_version'] if observation else RECOMMENDATION_VERSION
     comparable = (previous is not None and previous.get("schema_version") == schema
         and previous.get("rule_versions", {}).get("recommendation") == recommendation)
     comparable_previous = previous if comparable else {}
@@ -37,8 +48,9 @@ def build_brief(*, schedule, market, stance, candidates, events, coverage, previ
         if observation:
             metrics = sector["relative_metrics"]
             label = "相对强势" if metrics["absolute_up"] else "相对抗跌"
+            comparison = comparison_label(metrics)
             direction.update(continuity="延续观察" if sector["sector_id"] in old_directions else "本期相对表现观察",
-                reason=f"{label}：行业单日平均涨跌幅高于全市场，上涨家数占比不低于全市场；单日强弱不代表上涨趋势",
+                reason=f"{label}：行业单日平均涨跌幅高于{comparison}，上涨家数占比不低于{comparison}；单日强弱不代表上涨趋势",
                 invalidation="若相对优势消失、广度转弱或出现不利证据，重新核验观察依据")
         directions.append(direction)
     event_sectors = []
@@ -57,24 +69,30 @@ def build_brief(*, schedule, market, stance, candidates, events, coverage, previ
     ids = {r["security_id"] for r in (watch if observation else focus)}
     report = {"schema_version": schema, "purpose": "production", "timezone": "Asia/Shanghai", **deepcopy(schedule),
         "title": "盘前研究简报" if schedule["is_trading_day"] else "休市资讯与下一个交易日观察准备",
-        "notice": NOTICE, "generated_at": generated.isoformat(), "published_at": None,
-        "publication_status": "draft", "stance": deepcopy(stance), "market": deepcopy(market),
+        "notice": NOTICE.replace('姿态是整体市场倾向','市场状态描述已核验量价特征') if phased else NOTICE,
+        "generated_at": generated.isoformat(), "published_at": None,
+        "publication_status": "draft", ('market_state' if phased else 'stance'): deepcopy(assessment), "market": deepcopy(market),
         "directions": directions, "focus_candidates": focus,
         "pending_candidates": deepcopy(candidates.get("pending_candidates", [])),
         "excluded_candidates": deepcopy(candidates.get("excluded", [])),
         "screening_audit": deepcopy(candidates.get("preselection", {}).get("audit", [])),
         "overnight_events": deepcopy(events), "coverage": deepcopy(coverage),
         "score_used_for_priority": True, "research_horizon_sessions": [3, 10],
-        "rule_versions": {"stance": INDEPENDENT_STANCE_VERSION if observation else STANCE_VERSION,
+        "rule_versions": {('market_state' if phased else 'stance'): STATE_VERSION if phased else INDEPENDENT_STANCE_VERSION if observation else STANCE_VERSION,
             "recommendation": recommendation},
         "baseline_ids": list(candidates.get("preselection", {}).get("baseline_ids", [])),
         "changes_since_previous": {"comparable": comparable, "added_ids": sorted(ids-old_ids) if comparable else [],
             "removed_ids": sorted(old_ids-ids) if comparable else [],
-            "previous_stance": comparable_previous.get("stance", {}).get("stance")},
+            ('previous_market_state' if phased else 'previous_stance'):
+                comparable_previous.get('market_state',{}).get('state') if phased else comparable_previous.get("stance", {}).get("stance")},
         "input_hashes": {"market": digest(market), "candidates": digest(candidates), "events": digest(events), "coverage": digest(coverage)},
         "research_status": "ready" if market.get("status") == "ready" and coverage.get("ready") is True else "partial"}
     if observation:
         report.update(watch_candidates=watch, observation_selection_id=preselection.get("selection_id"))
+    if covered:
+        report['research_coverage'] = deepcopy(preselection['research_coverage'])
+        if report['research_coverage']['comparison_scope']=='observed_sample':
+            report['research_status']='partial'
     validate_brief(report)
     return report
 
@@ -87,18 +105,28 @@ def validate_brief(report: dict) -> None:
         raise ValueError("premarket_report_date_invalid")
     for key in ("generated_at", "news_cutoff_at", "publication_due_at"):
         aware(report[key])
-    stance = report["stance"].get("stance")
+    phased = report['schema_version']==STATE_SCHEMA
+    stance = report.get("stance",{}).get("stance")
     legacy = report["schema_version"] == "premarket-brief-v1"
-    observation = report["schema_version"] == OBSERVATION_SCHEMA
+    observation = report["schema_version"] in OBSERVATION_SCHEMAS
     allowed_stances = {"attack", "defend", "hold"} if legacy else {"attack", "defend", "hold", "undetermined"}
     expected_version = "premarket-stance-v1" if legacy else INDEPENDENT_STANCE_VERSION if observation else STANCE_VERSION
-    if (stance not in allowed_stances or report.get("score_used_for_priority") is not True
+    if report.get('score_used_for_priority') is not True:
+        raise ValueError('premarket_report_policy_invalid')
+    if phased:
+        expected=classify_market_state(report['market'],news_ready=report['coverage'].get('ready') is True,
+            events=report.get('overnight_events',[]))
+        if ('stance' in report or 'stance' in report.get('rule_versions',{})
+                or report.get('rule_versions',{}).get('market_state')!=STATE_VERSION
+                or report.get('market_state')!=expected):
+            raise ValueError('premarket_state_evidence_mismatch')
+    elif (stance not in allowed_stances
             or report.get("rule_versions", {}).get("stance") != expected_version
             or report["stance"].get("rule_version") != expected_version):
         raise ValueError("premarket_report_policy_invalid")
     if legacy and stance == "attack" and (report["market"].get("status") != "ready" or report["coverage"].get("ready") is not True):
         raise ValueError("premarket_attack_without_evidence")
-    if not legacy:
+    if not legacy and not phased:
         adverse = any(e.get("validation_status") == "verified" and e.get("risk_status") == "adverse"
             and e.get("impact_scope") == "market" for e in report.get("overnight_events", []))
         expected = decide_stance(report["market"], news_ready=report["coverage"].get("ready") is True,
@@ -111,6 +139,20 @@ def validate_brief(report: dict) -> None:
         raise ValueError("premarket_focus_invalid")
     if observation:
         _validate_observation(report)
+    if report['schema_version']==COVERAGE_SCHEMA or phased and 'research_coverage' in report:
+        value=report.get('research_coverage',{})
+        validate_coverage(value)
+        if value['comparison_scope']=='observed_sample' and report.get('research_status')!='partial':
+            raise ValueError('premarket_coverage_status_invalid')
+        facts=[d['relative_metrics'] for d in report['directions'] if d.get('kind')=='relative_strength']
+        facts.extend(r['relative_observation'] for r in report['watch_candidates'])
+        if any(f.get('comparison_scope')!=value['comparison_scope'] for f in facts):
+            raise ValueError('premarket_coverage_comparison_mismatch')
+        for event in value.get('security_events',[]):
+            if event['effective_date']>report['report_date'] or aware(event['verified_at'])>aware(report['generated_at']):
+                raise ValueError('premarket_coverage_event_future')
+            if any(row['security_id']==event['security_id'] for row in report['watch_candidates']):
+                raise ValueError('premarket_coverage_exited_observation')
 
 
 def _validate_observation(report):
@@ -123,7 +165,9 @@ def _validate_observation(report):
         # Match the upstream boundary's sub-nanopoint float-rounding allowance.
         return abs(left - right) <= decimal("0.000000001")
     try:
-        require(report["rule_versions"].get("recommendation") == OBSERVATION_VERSION)
+        require(report["rule_versions"].get("recommendation") ==
+            (COVERAGE_VERSION if report['schema_version']==COVERAGE_SCHEMA
+             or report['schema_version']==STATE_SCHEMA and 'research_coverage' in report else OBSERVATION_VERSION))
         require(not report["focus_candidates"] and not report["pending_candidates"])
         rows, audit = report["watch_candidates"], report.get("screening_audit", [])
         require(isinstance(rows, list) and len(rows) <= 5)
@@ -178,30 +222,42 @@ def direction_facts(direction):
     facts = direction.get("relative_metrics")
     if not facts:
         return []
+    comparison=comparison_label(facts)
     return [f"单日行业平均 {decimal(facts['mean_change_pct']):.2f}%，中位数 {decimal(facts['median_change_pct']):.2f}%；"
-        f"全市场平均 {decimal(facts['market_mean_change_pct']):.2f}%；相对全市场 {decimal(facts['excess_market_pp']):.2f} 个百分点",
-        f"行业上涨家数占比 {decimal(facts['advancing_fraction']) * 100:.2f}%，全市场 {decimal(facts['market_advancing_fraction']) * 100:.2f}%；行业样本 {facts['member_count']} 只"]
+        f"{comparison}平均 {decimal(facts['market_mean_change_pct']):.2f}%；相对{comparison} {decimal(facts['excess_market_pp']):.2f} 个百分点",
+        f"行业上涨家数占比 {decimal(facts['advancing_fraction']) * 100:.2f}%，{comparison} {decimal(facts['market_advancing_fraction']) * 100:.2f}%；行业样本 {facts['member_count']} 只"]
 
 
 def observation_facts(row):
     facts = row.get("relative_observation")
     if not facts:
         return []
+    comparison=comparison_label(facts)
     return [f"单日涨跌幅 {decimal(facts['stock_change_pct']):.2f}%；行业平均 {decimal(facts['sector_mean_change_pct']):.2f}%，"
-        f"全市场平均 {decimal(facts['market_mean_change_pct']):.2f}%",
-        f"相对行业 {decimal(facts['excess_sector_pp']):.2f} 个百分点，相对全市场 {decimal(facts['excess_market_pp']):.2f} 个百分点；"
+        f"{comparison}平均 {decimal(facts['market_mean_change_pct']):.2f}%",
+        f"相对行业 {decimal(facts['excess_sector_pp']):.2f} 个百分点，相对{comparison} {decimal(facts['excess_market_pp']):.2f} 个百分点；"
         f"成交额 {decimal(facts['amount_cny']) / 10000:.2f} 万元；行情日 {facts['market_as_of_date']}"]
 
 
 def report_sections(report: dict) -> list:
-    stance = report["stance"]
+    phased=report['schema_version']==STATE_SCHEMA
+    stance = report['market_state'] if phased else report["stance"]
     overview = [("paragraph", stance["label"] + "：" + "；".join(stance["reasons"])),
         ("table", (["时间口径", "记录"], [[label, report[key]] for label, key in (
             ("早报日期", "report_date"), ("目标交易日", "target_session_date"), ("行情截至", "market_as_of_date"),
             ("消息截点", "news_cutoff_at"), ("实际生成", "generated_at"), ("实际发布", "published_at"))]))]
     overview.extend(("paragraph", "现有证据：" + item) for item in stance.get("analysis", []))
     overview.extend(("paragraph", "资料限制：" + item) for item in stance.get("limitations", []))
-    observation = report["schema_version"] == OBSERVATION_SCHEMA
+    separate=[]
+    if phased:
+        overview.append(('paragraph','观察重点：'+stance['observation_focus']))
+        basis=stance['evidence_basis']
+        separate=[('依据范围',[('paragraph',basis['label'])]+[('paragraph',v) for v in basis['limitations']]),
+            ('风险提示',[('paragraph',r['text']) for r in stance['risk_notes']]
+             or [('paragraph','未触发本规则的额外风险标记，不代表没有风险。')])]
+    observation = report["schema_version"] in OBSERVATION_SCHEMAS
+    if report.get('research_coverage'):
+        overview.append(('paragraph',coverage_notice(report['research_coverage'])))
     directions = []
     for direction in report["directions"]:
         directions.append(("paragraph", direction.get("name", direction["sector_id"]) + "：" + direction["reason"] + "；" + direction["continuity"]))
@@ -240,7 +296,7 @@ def report_sections(report: dict) -> list:
     for event in report["overnight_events"]:
         news.append(("paragraph", ("此前已观察，保留为背景：" if event.get("is_background") else "") + event["text"]))
         news.extend(("paragraph", source.get("public_url", source["original_url"])) for source in event.get("sources", []))
-    return [("市场姿态与时间", overview),
+    return [("市场状态与时间" if phased else "市场姿态与时间", overview), *separate,
             ("相对表现观察方向" if observation else "重点方向", directions),
             ("观察名单与风险" if observation else "关注股票与风险", stocks),
             ("隔夜变化", news or [("paragraph", "暂无已核验的新事件，不代表没有消息。")]),

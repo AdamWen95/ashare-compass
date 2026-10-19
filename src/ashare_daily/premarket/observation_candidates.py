@@ -83,7 +83,7 @@ def _priority(row):
 def preselect_observations(selection, evaluations, reference):
     verify_selection(selection)
     if (selection.get("selection_verified") is not True
-            or selection.get("rule_version") != "premarket-relative-observation-v1"
+            or selection.get("rule_version") not in {"premarket-relative-observation-v1", "premarket-relative-observation-v2"}
             or reference.get("selection_id") != selection["selection_id"]
             or reference.get("trade_date") != selection["target_date"]):
         raise ValueError("premarket_score_binding_mismatch")
@@ -133,7 +133,9 @@ def preselect_observations(selection, evaluations, reference):
     baseline = sorted((row for row in eligible if row.get("technical_status") in {"pass", "fail"}
         and _number((row.get("metrics") or {}).get("relative_return_20")) is not None),
         key=lambda row: (-decimal(row["metrics"]["relative_return_20"]), row["security_id"]))
-    return {"rule_version": VERSION, "observation_only": True, "score_used_for_priority": True,
+    return {"rule_version": 'premarket-observation-v2' if selection.get('research_coverage') else VERSION,
+        **({'research_coverage':deepcopy(selection['research_coverage'])} if selection.get('research_coverage') else {}),
+        "observation_only": True, "score_used_for_priority": True,
         "selection_id": selection["selection_id"], "market_as_of_date": selection["target_date"],
         "candidates": deepcopy(chosen[:5]), "pending": [], "excluded": excluded,
         "qualified_count": sum(row.get("eligibility_status") == "pass" and row.get("technical_status") == "pass" for row in eligible),
@@ -161,6 +163,9 @@ def _observation_text(row):
         f"高于行业均值{_text(relative['excess_sector_pp'])}个百分点、高于市场均值{_text(relative['excess_market_pp'])}个百分点；"
         f"当日成交额{_text(decimal(relative['amount_cny']) / 10000)}万元"]
     risks = ["单日相对强弱不能证明未来上涨；资格与行情核验适用于行情日，报告日交易状态仍待核验"]
+    if relative.get('comparison_scope') == 'observed_sample':
+        reasons = [text.replace('市场均值','已核验样本均值') for text in reasons]
+        risks.append('相对表现基于已核验股票样本；缺失证券可能改变行业及整体排名，不代表全市场最优。')
     watch = [f"观察{row['sector_name']}相对市场表现是否延续，以及该股是否继续强于行业和市场",
         "核验报告日非ST、非停牌、上市及证券身份状态"]
     invalidation = ["该股不再强于所属行业或市场，单日相对强势依据失效",
@@ -225,5 +230,6 @@ def finalize_observations(preselection, *, company_reviews, stance, events):
             observation_risks=list(dict.fromkeys(risks)))
         watch.append(row)
     return {"observation_only": True, "watch_candidates": watch, "focus_candidates": [], "pending_candidates": [],
-        "excluded": excluded, "preselection": deepcopy(preselection), "new_attack_supported": stance.get("stance") == "attack",
-        "notice": "市场姿态与观察名单分别判断；名单仅供条件观察，不提供账户交易指令"}
+        "excluded": excluded, "preselection": deepcopy(preselection),
+        **({"new_attack_supported":stance.get('stance')=='attack'} if 'stance' in stance else {}),
+        "notice": "市场状态与观察名单分别判断；名单仅供条件观察，不提供账户交易指令"}

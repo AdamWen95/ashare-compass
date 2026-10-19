@@ -233,7 +233,7 @@ def _validate_source_pages(root, universe, file_refs):
     return found, source_dates, enums
 
 
-def exchange_industry_snapshot(root, universe):
+def exchange_industry_snapshot(root, universe, *, allow_partial=False):
     """Derive source sections only after revalidating original immutable pages."""
     if not isinstance(universe, dict):
         raise ValueError("industry_universe_object_required")
@@ -242,9 +242,12 @@ def exchange_industry_snapshot(root, universe):
     mapping = _mapping_rows()
     refs, issues, grouped, sources, enums = {}, [], defaultdict(list), [], []
     try:
+        if allow_partial:
+            from ..universe_coverage import assess_universe_coverage
+            assess_universe_coverage(universe)
         if (mode not in {"research", "offline_test"} or universe.get("scope") != "sse_szse_a"
-                or universe.get("universe_verified") is not True or universe.get("collection_ready") is not True
-                or universe.get("blockers")):
+                or not allow_partial and (universe.get("universe_verified") is not True
+                    or universe.get("collection_ready") is not True or universe.get("blockers"))):
             raise ValueError("industry_requires_verified_scoped_universe")
         body = {k: v for k, v in universe.items() if k not in {"snapshot_id", "content_hash"}}
         hashed = _digest(body)

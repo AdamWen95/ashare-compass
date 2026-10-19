@@ -94,7 +94,7 @@ def _ordinary_members(universe):
     return members
 
 
-def _market_quotes(selection, packet, members):
+def _market_quotes(selection, packet, members, *, allow_partial=False):
     lookup = defaultdict(list)
     for quote in packet["quotes"].get("rows", []):
         lookup[quote.get("symbol")].append(quote)
@@ -122,10 +122,12 @@ def _market_quotes(selection, packet, members):
             valid[identity] = quote
     complete = not missing and bool(valid)
     changes = [number(row["change_pct"]) for row in valid.values()]
-    mean = sum(changes) / len(changes) if complete else None
-    advancing = Decimal(sum(value > 0 for value in changes)) / len(changes) if complete else None
-    baseline = {"status": "ready" if complete else "unavailable", "market_as_of_date": target,
-        "scope": "sse_szse_a", "basis": "equal_weight_verified_ordinary_a_daily_change",
+    usable = complete or allow_partial and bool(valid)
+    mean = sum(changes) / len(changes) if usable else None
+    advancing = Decimal(sum(value > 0 for value in changes)) / len(changes) if usable else None
+    sample = allow_partial and (bool(missing) or packet['universe'].get('structural_verified') is not True)
+    baseline = {"status": "ready" if usable else "unavailable", "market_as_of_date": target,
+        "scope": "observed_sample" if sample else "sse_szse_a", "basis": "equal_weight_verified_ordinary_a_daily_change",
         "sample_count": len(valid), "halted_count": len(halted), "missing_count": len(missing),
         "missing_ids": missing, "mean_change_pct": float(mean) if mean is not None else None,
         "advancing_fraction": float(advancing) if advancing is not None else None}
@@ -137,7 +139,7 @@ def _directions(selection, quotes, market_mean, market_advancing):
     for row in rows:
         row.update(selected=False, selected_rank=None, pre_rank=None, reasons=[])
         if (row.get("taxonomy") != selection["taxonomy"] or row.get("kind") != "industry"
-                or row.get("comparison_not_applicable")):
+                or row.get("comparison_not_applicable") or row.get('membership_complete') is not True):
             row["reasons"] = ["outside_relative_industry_scope"]
             continue
         values = [quotes[i] for i in row["member_security_ids"] if i in quotes]
@@ -170,14 +172,14 @@ def _directions(selection, quotes, market_mean, market_advancing):
     return rows, selected, len(ranked)
 
 
-def _pool(directions, members, quotes, market_mean, target):
+def _pool(directions, members, quotes, market_mean, target, *, excluded_ids=()):
     selected, eligible_ids = {}, set()
     for sector in directions:
         values = [quotes[i] for i in sector["member_security_ids"] if i in quotes]
         sector_mean = sum(number(quote["change_pct"]) for quote in values) / len(values)
         eligible = []
         for identity in sector["member_security_ids"]:
-            if identity not in quotes or identity not in members:
+            if identity not in quotes or identity not in members or identity in excluded_ids:
                 continue
             member, quote = members[identity], quotes[identity]
             if (member.get("listing_status") == "delisted" or any(
@@ -203,33 +205,46 @@ def _pool(directions, members, quotes, market_mean, target):
     return [selected[key] for key in sorted(selected)], len(eligible_ids)
 
 
-def build_observation_selection(strict_selection, packet):
+def build_observation_selection(strict_selection, packet, *, allow_partial=False, security_events=()):
     """Derive a frozen <=15-stock pool; leave source facts and strict rules intact.
 
     Conflicting bindings raise; incomplete but honestly frozen inputs yield an
     explicitly blocked empty pool. No source calls or qualification claims occur.
     """
     _verify_binding(strict_selection, packet)
+    coverage = None
+    if allow_partial:
+        from ..universe_coverage import assess_universe_coverage
+        coverage = assess_universe_coverage(packet['universe'])
     members = _ordinary_members(packet["universe"])
-    quotes, baseline, market_mean, market_advancing = _market_quotes(strict_selection, packet, members)
+    from .security_events import excluded_event_ids
+    excluded_ids=excluded_event_ids(security_events,members)
+    quotes, baseline, market_mean, market_advancing = _market_quotes(strict_selection, packet, members, allow_partial=allow_partial)
     blockers = list(strict_selection.get("blockers", []))
-    if strict_selection.get("selection_verified") is not True:
+    if allow_partial:
+        soft = {'universe_unverified','sector_date_or_membership_unverified','incomplete_comparison_cannot_claim_zero'}
+        blockers = [reason for reason in blockers if reason not in soft]
+        if any(row.get('identity_issue_count') or row.get('membership_issues') for row in strict_selection['sectors']):
+            blockers.append('relative_membership_identity_unverified')
+    if not allow_partial and strict_selection.get("selection_verified") is not True:
         blockers.append("relative_strict_inputs_unverified")
-    if strict_selection.get("industry_comparison_complete") is not True:
+    if not allow_partial and strict_selection.get("industry_comparison_complete") is not True:
         blockers.append("relative_industry_comparison_incomplete")
     if baseline["status"] != "ready":
         blockers.append("relative_market_quotes_incomplete")
     sectors, directions, preselected, pool, eligible_count = [], [], 0, [], 0
     if not blockers:
         sectors, directions, preselected = _directions(strict_selection, quotes, market_mean, market_advancing)
-        pool, eligible_count = _pool(directions, members, quotes, market_mean, strict_selection["target_date"])
+        pool, eligible_count = _pool(directions, members, quotes, market_mean, strict_selection["target_date"],
+            excluded_ids=excluded_ids)
     else:
         sectors = deepcopy(strict_selection["sectors"])
         for sector in sectors:
             sector.update(selected=False, selected_rank=None, pre_rank=None,
                           reasons=["relative_selection_inputs_blocked"])
     result = deepcopy(strict_selection)
-    result.update(rule_version=RULE_VERSION, parameters=deepcopy(PARAMETERS), observation_only=True,
+    result.update(rule_version='premarket-relative-observation-v2' if allow_partial else RULE_VERSION,
+        parameters=deepcopy(PARAMETERS), observation_only=True,
         basis_selection_id=strict_selection["selection_id"], basis_selection_content_hash=strict_selection["content_hash"],
         title="沪深 A 股·相对强势观察", selection_verified=not blockers, blockers=sorted(set(blockers)),
         selection_status="selection_blocked" if blockers else "selected" if directions else "no_matching_sectors",
@@ -241,6 +256,19 @@ def build_observation_selection(strict_selection, packet):
         observation_scope={**PARAMETERS, "eligible_security_count": eligible_count,
             "selected_security_count": len(pool), "outside_pool_history": "not_requested_by_design",
             "qualification_status": "not_evaluated", "full_market_deep_analysis": False})
+    if allow_partial:
+        sample = coverage['status']=='partial' or baseline['missing_count']>0
+        coverage.update(quote_sample_count=baseline['sample_count'], quote_missing_count=baseline['missing_count'],
+            quote_missing_ids=baseline['missing_ids'], halted_count=baseline['halted_count'],
+            market_as_of_date=strict_selection['target_date'],
+            comparison_scope='observed_sample' if sample else 'verified_universe')
+        result['research_coverage']=coverage
+        coverage['security_events']=deepcopy(list(security_events))
+        coverage['confirmed_exit_ids']=sorted(excluded_ids & set(coverage['missing_ids']))
+        for direction in result['selected_sectors']:
+            direction['relative_metrics']['comparison_scope']=coverage['comparison_scope']
+        for member in result['members']:
+            member['relative_observation']['comparison_scope']=coverage['comparison_scope']
     result.pop("content_hash", None)
     result.pop("selection_id", None)
     result["content_hash"] = digest(result)

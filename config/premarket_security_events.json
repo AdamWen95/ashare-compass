@@ -1,0 +1,27 @@
+{
+  "schema_version": "premarket-security-events-v1",
+  "events": [
+    {
+      "event_id": "sse-delisting-20261019-601059",
+      "exchange": "SSE", "code": "601059", "name": "信达证券",
+      "security_id": "43e72e24-0806-551b-b3d8-0672f3fb7ef8",
+      "kind": "delisting_after_merger", "effective_date": "2026-10-19",
+      "published_date": "2026-10-12",
+      "first_observed_at": "2026-10-19T14:12:41+08:00",
+      "verified_at": "2026-10-19T14:12:41+08:00",
+      "verification": "reviewed_primary_publication",
+      "source_url": "https://www.sse.com.cn/disclosure/announcement/listing/stock/c/c_20261012_10834561.shtml"
+    },
+    {
+      "event_id": "sse-delisting-20261019-601198",
+      "exchange": "SSE", "code": "601198", "name": "东兴证券",
+      "security_id": "a43b9b24-abca-51bb-89d4-6df3bf9f63cd",
+      "kind": "delisting_after_merger", "effective_date": "2026-10-19",
+      "published_date": "2026-10-12",
+      "first_observed_at": "2026-10-19T14:12:41+08:00",
+      "verified_at": "2026-10-19T14:12:41+08:00",
+      "verification": "reviewed_primary_publication",
+      "source_url": "https://www.sse.com.cn/disclosure/announcement/listing/stock/c/c_20261012_10834560.shtml"
+    }
+  ]
+}

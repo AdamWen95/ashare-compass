@@ -8,9 +8,10 @@ from pathlib import Path
 import re
 from uuid import uuid4
 
-from ..reports.m3_render import render_sections_html, render_sections_markdown
+from ..reports.m3_render import render_sections_markdown
 from .contracts import READABLE_SCHEMAS, aware
 from .report import report_sections, validate_brief
+from .presentation import render_document
 
 RELATIVE_ROOT = Path("research/sse_szse_a/premarket_reports")
 FILES = {"premarket_brief.json", "premarket_brief.md", "premarket_brief.html"}
@@ -59,8 +60,7 @@ def publish_brief(project: Path, report: dict, *, now) -> dict:
     sections = report_sections(report)
     contents = {"premarket_brief.json": encoded(report),
         "premarket_brief.md": render_sections_markdown(report["title"], report["notice"], sections).encode(),
-        "premarket_brief.html": render_sections_html(report["title"], report["report_date"], report["notice"], sections,
-            eyebrow="盘前研究 · 3–10个交易日 · 数据与风险可追溯").encode()}
+        "premarket_brief.html": render_document(report).encode()}
     for name, body in contents.items():
         (stage / name).write_bytes(body)
     (stage / "manifest.json").write_bytes(encoded({"schema_version": report["schema_version"], "report_id": identity,

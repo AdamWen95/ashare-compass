@@ -60,7 +60,7 @@ def _production(selection):
     if (selection.get("purpose", "production") != "production" or selection.get("production_eligible") is False
             or selection["selection_id"].startswith("validation-") or selection.get("selection_verified") is not True):
         raise ValueError("daily observations require a verified production selection")
-    if selection.get("observation_only") is True and (selection.get("rule_version") != "premarket-relative-observation-v1"
+    if selection.get("observation_only") is True and (selection.get("rule_version") not in {"premarket-relative-observation-v1", "premarket-relative-observation-v2"}
             or len(selection["members"]) > 15):
         raise ValueError("premarket_observation_pool_invalid")
 

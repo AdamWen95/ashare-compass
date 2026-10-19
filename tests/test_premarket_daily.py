@@ -4,8 +4,9 @@ from pathlib import Path
 import shutil
 
 from test_premarket_timing import CALENDAR
-from test_premarket_market import snapshot, market_inputs
-from test_premarket_candidates import preselect
+from test_premarket_market_states import state_market
+from test_premarket_observation_candidates import inputs, rebind
+from ashare_daily.premarket.candidates import preselect_candidates
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,9 +26,13 @@ class Services:
     def market(self, schedule, directory, seconds, run_id):
         self.calls.append("market")
         self.clock.value = datetime.fromisoformat("2026-10-12T08:50:00+08:00")
-        market = snapshot(market_inputs())
-        market["market_as_of_date"] = market["benchmark"]["market_as_of_date"] = schedule["market_as_of_date"]
-        return {"market": market, "preselection": preselect(), "company_reviews": {}, "entities": {}}
+        market = state_market(day=schedule['market_as_of_date'])
+        values=inputs()
+        values[0]['target_date']=values[2]['trade_date']=schedule['market_as_of_date']
+        for member in values[0]['members']:
+            member['relative_observation']['market_as_of_date']=schedule['market_as_of_date']
+        rebind(values)
+        return {"market": market, "preselection": preselect_candidates(*values), "company_reviews": {}, "entities": {}}
     def news(self, schedule, window, prepared, directory, seconds):
         self.calls.append("news")
         self.clock.value = datetime.fromisoformat("2026-10-12T08:55:00+08:00")

@@ -145,13 +145,13 @@ def test_production_adapter_keeps_market_facts_when_stock_preparation_fails(tmp_
     monkeypatch.setattr(service, "load_options", lambda *a: {"max_quote_status_seconds": 1, "max_quote_status_queries": 1,
         "require_delisting_check": False, "strategy_config": "strategy"})
     monkeypatch.setattr(service, "load_universe_config", lambda *a: SimpleNamespace(calendar_provider="exchange_calendars"))
-    monkeypatch.setattr(service, "_read_snapshot", lambda *a: None)
+    monkeypatch.setattr(service, "_read_snapshot", lambda *a, **kw: deepcopy(u))
     monkeypatch.setattr(service, "collect_inputs", lambda *a, **k: {"universe": u, "quotes": {"rows": q}, "catalog": {}, "memberships": {}, "calendar": {}})
     monkeypatch.setattr(service, "supplement_zero_quotes", lambda project, packet, *a, **k: packet)
     selection = {"selection_verified": failure != "selection", "selection_id": "s", "members": [], "selected_sectors": [], "target_date": "2026-09-21"}
     monkeypatch.setattr(service, "evaluate", lambda *a, **k: (selection, {}))
     # This test injects a stock-stage failure, not source/selection provenance.
-    monkeypatch.setattr(service, "build_observation_selection", lambda *a: selection)
+    monkeypatch.setattr(service, "build_observation_selection", lambda *a, **kw: selection)
     monkeypatch.setattr(service, "archive_selection", lambda *a: None)
     def fail_observation(*a, **k): raise ValueError("stock_history_unavailable")
     monkeypatch.setattr(service, "_observe", fail_observation)

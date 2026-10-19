@@ -3,6 +3,7 @@ from datetime import datetime
 from streamlit.testing.v1 import AppTest
 
 from test_premarket_report import make_brief, DUE
+from premarket_ui_helpers import morning_content
 
 
 def test_today_state_distinguishes_old_report_from_current_success():
@@ -32,12 +33,12 @@ render_morning(st, archives, root, now=now, runs=[])
 '''
     app = AppTest.from_string(script).run()
     assert not app.exception
-    text = " ".join(str(e.value) for kind in (app.markdown, app.caption, app.info, app.warning, app.subheader) for e in kind)
+    text = ' '.join(morning_content(app).parts)
     assert "进攻倾向" in text and "资料限制" in text
     assert "按兵不动的原因可能是资料不足" not in text
     assert "待核查" in text
     assert "2026-10-09" in text
-    assert any("完整筛选明细" in e.label for e in app.expander)
+    assert '完整筛选明细' in text
     assert len(app.get("download_button")) == 3
 
 

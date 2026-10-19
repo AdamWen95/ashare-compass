@@ -36,7 +36,7 @@ def _write_new(path: Path, value: dict) -> str:
     return hashlib.sha256(body).hexdigest()
 
 
-def _read_snapshot(root: Path, config: dict, target: str, universe_config) -> dict:
+def _read_snapshot(root: Path, config: dict, target: str, universe_config, *, allow_partial=False) -> dict:
     """Read an existing research ledger; never invoke its mutating constructor."""
     if universe_config.scope != config["scope"]:
         raise ValueError("market_universe_scope_mismatch")
@@ -62,11 +62,11 @@ def _read_snapshot(root: Path, config: dict, target: str, universe_config) -> di
         if row is None:
             raise ValueError("target_universe_snapshot_missing")
         snapshot = UniverseStore._decode_snapshot(row)
-    _select_requests(snapshot, target, config["scope"])
+    _select_requests(snapshot, target, config["scope"], allow_partial=allow_partial)
     return snapshot
 
 
-def _select_requests(snapshot: dict, target: str, scope: str) -> list[DailyBarRequest]:
+def _select_requests(snapshot: dict, target: str, scope: str, *, allow_partial=False) -> list[DailyBarRequest]:
     """Pure identity validation. This helper grants no online client injection."""
     if scope != "sse_szse_a":
         raise ValueError("unsupported_scope")
@@ -74,9 +74,13 @@ def _select_requests(snapshot: dict, target: str, scope: str) -> list[DailyBarRe
         raise ValueError("universe_provenance_or_scope_mismatch")
     if snapshot.get("requested_date") != target or snapshot.get("resolved_trade_date") != target:
         raise ValueError("universe_target_date_mismatch")
-    if any(snapshot.get(key) is not True for key in ("universe_verified", "collection_ready", "calendar_verified")):
+    if allow_partial:
+        from .universe_coverage import assess_universe_coverage
+        assess_universe_coverage(snapshot)
+    if snapshot.get('calendar_verified') is not True or not allow_partial and any(
+            snapshot.get(key) is not True for key in ("universe_verified", "collection_ready")):
         raise ValueError("universe_not_verified")
-    if tuple(snapshot.get("required_boards", [])) != scope_boards(scope) or snapshot.get("blockers"):
+    if tuple(snapshot.get("required_boards", [])) != scope_boards(scope) or not allow_partial and snapshot.get("blockers"):
         raise ValueError("universe_boards_or_blockers_invalid")
     observed, cutoff = (datetime.fromisoformat(snapshot[key]) for key in ("observed_at", "cutoff_at"))
     if observed.utcoffset() is None or cutoff.utcoffset() is None or observed < cutoff or observed > datetime.now(SHANGHAI):

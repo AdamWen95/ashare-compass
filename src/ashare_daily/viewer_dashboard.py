@@ -11,6 +11,16 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 
+# Inline SVG keeps the tab icon self-contained and crisp at small sizes.
+FAVICON = '''<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="16" fill="#b4472c"/>
+<circle cx="32" cy="32" r="21" fill="none" stroke="#f3d5c1" stroke-width="2"/>
+<path d="M45 19 36 36 28 28Z" fill="#fffaf2"/>
+<path d="M19 45 28 28 36 36Z" fill="#e8b69b"/>
+<circle cx="32" cy="32" r="3" fill="#fffaf2"/>
+</svg>'''
+
+
 STYLE = """
 <style>
 :root { --brief-ink:#3d2b24; --brief-muted:#79675c; --brief-accent:#bd432b;
