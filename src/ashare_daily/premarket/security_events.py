@@ -12,10 +12,10 @@ from .contracts import aware
 def validate_security_event(event):
     url=urlsplit(event.get('source_url',''))
     if (event.get('verification')!='reviewed_primary_publication'
-            or event.get('kind')!='delisting_after_merger' or event.get('exchange') not in {'SSE','SZSE'}
+            or event.get('kind') not in {'delisting_after_merger','delisting'} or event.get('exchange') not in {'SSE','SZSE'}
             or not re.fullmatch(r'\d{6}',event.get('code','')) or not event.get('security_id')
             or not event.get('event_id') or not event.get('name')
-            or url.scheme!='https' or url.hostname not in {'www.sse.com.cn','www.szse.cn','static.cninfo.com.cn'}
+            or url.scheme!='https' or url.hostname not in {'www.sse.com.cn','www.szse.cn','static.cninfo.com.cn','disc.static.szse.cn'}
             or url.username or url.password):
         raise ValueError('premarket_security_event_unverified')
     published=date.fromisoformat(event['published_date'])

@@ -71,7 +71,8 @@ def parse_directory(raw, company):
         result.append({"announcement_id": identity, "title": _plain(row.get("announcementTitle")),
             "original_url": "https://static.cninfo.com.cn/" + path,
             "published_at": published.date().isoformat() if precision == "date" else published.isoformat(),
-            "publication_precision": precision})
+            "publication_precision": precision,
+            "directory_version": hashlib.sha256(json.dumps({k:row.get(k) for k in ("announcementId", "announcementTime", "adjunctUrl", "adjunctSize", "announcementTitle")}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()})
     return {"records": result, "complete": count == len(records) and more is False, "total": count}
 
 
@@ -96,13 +97,24 @@ def review_text(text, company):
         "notice": "公告正文已取得；关键词仅供定位，尚未完成语义风险核查，不能按无风险处理"}
 
 
-def collect_company_reviews(session, candidates, *, start, cutoff, directory):
+def collect_company_reviews(session, candidates, *, start, cutoff, directory,
+                            cache_directory=None, decision_directory=None, query_windows=None):
+    from .announcement_review import VERSION, publication_scope, finalize_review
     begin, end = aware(start), aware(cutoff)
     if begin >= end or len(candidates) > 5 or len({r["security_id"] for r in candidates}) != len(candidates):
         raise ValueError("announcement_scope_invalid")
-    reviews = {r["security_id"]: {"status": "partial", "risk_status": "unknown", "evidence_ids": [], "gaps": [],
-        "announcements": [], "risk_flags": [], "query_start_at": start, "query_cutoff_at": cutoff,
-        "notice": "仅核查本期公告窗口；不代表公司不存在历史风险", "model_use_allowed": False} for r in candidates}
+    reviews = {}
+    for candidate in candidates:
+        identity = candidate['security_id']
+        window = (query_windows or {}).get(identity, {})
+        effective = window.get('start_at', start)
+        if not begin <= aware(effective) < end:
+            raise ValueError('company_window_outside_request')
+        reviews[identity] = {"status": "partial", "risk_status": "unknown", "evidence_ids": [], "gaps": [],
+            "announcements": [], "risk_flags": [], "query_start_at": effective, "query_cutoff_at": cutoff,
+            "prior_window_evidence": window.get('prior_window_evidence'), "review_version": VERSION,
+            "coverage_origin_at": window.get('coverage_origin_at', effective),
+            "notice": "仅核查本期公告窗口；不代表公司不存在历史风险", "model_use_allowed": False}
     if not candidates:
         return {"reviews": reviews, "status": "not_applicable", "source_id": SOURCE}
     try:
@@ -111,65 +123,102 @@ def collect_company_reviews(session, candidates, *, start, cutoff, directory):
         if aware(mapping_receipt["fetched_at"]) > end:
             raise ValueError("mapping_first_seen_after_cutoff")
     except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
-        for review in reviews.values(): review["gaps"].append("公告身份映射未取得：" + type(exc).__name__)
+        for review in reviews.values():
+            review["gaps"].append("公告身份映射未取得：" + type(exc).__name__)
+            finalize_review(review)
         atomic_json(directory / "company_reviews.json", reviews)
         return {"reviews": reviews, "status": "partial", "source_id": SOURCE}
+    companies = {}
+    # Reserve access to every directory before spending remaining requests on PDFs.
     for candidate in candidates:
-        review = reviews[candidate["security_id"]]
+        review = reviews[candidate['security_id']]
+        effective = aware(review['query_start_at'])
         try:
             company = resolve_company(mapping, candidate)
-            form = {"pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext", "plate": "",
-                "stock": company["code"] + "," + company["orgId"], "searchkey": "", "secid": "", "category": "",
-                "trade": "", "seDate": begin.date().isoformat() + "~" + end.date().isoformat(),
+            companies[candidate['security_id']] = company
+            form = {"pageNum": "1", "pageSize": "30", "column": "szse", "tabName": "fulltext",
+                "plate": "", "stock": company["code"] + "," + company["orgId"], "searchkey": "", "secid": "", "category": "",
+                "trade": "", "seDate": effective.date().isoformat() + "~" + end.date().isoformat(),
                 "sortName": "", "sortType": "", "isHLtitle": "true"}
             body, receipt = session.get(DIRECTORY, SOURCE, "directory", data=form)
             parsed = parse_directory(json.loads(body), company)
-            review["directory_evidence"] = {**receipt, "total": parsed["total"], "mapping_sha256": mapping_receipt["raw_sha256"]}
-            review["evidence_ids"].append("cninfo-directory-" + hashlib.sha256((candidate["security_id"] + receipt["raw_sha256"] + start + cutoff).encode()).hexdigest())
             if aware(receipt["fetched_at"]) > end:
                 raise ValueError("directory_first_seen_after_cutoff")
-            if not parsed["complete"]:
-                review["gaps"].append("公告目录超过单页上限或计数不一致，窗口未完整覆盖")
-            selected = []
-            for item in parsed["records"]:
-                published = aware(item["published_at"] + "T00:00:00+08:00" if item["publication_precision"] == "date" else item["published_at"])
-                if item["publication_precision"] == "date":
-                    if begin.date() <= published.date() <= end.date():
-                        review["gaps"].append("公告只有日期精度，无法确定是否属于本期窗口")
+            review["directory_evidence"] = {**receipt, "total": parsed["total"], "mapping_sha256": mapping_receipt["raw_sha256"]}
+            review["evidence_ids"].append("cninfo-directory-" + hashlib.sha256((candidate["security_id"] + receipt["raw_sha256"] + review['query_start_at'] + cutoff).encode()).hexdigest())
+            review['window_status'] = 'complete' if parsed['complete'] else 'partial'
+            if not parsed['complete']:
+                review['gaps'].append('公告目录超过单页上限或计数不一致，窗口未完整覆盖')
+            for item in parsed['records']:
+                scope = publication_scope(item, review['query_start_at'], cutoff, receipt['fetched_at'])
+                if scope == 'outside':
                     continue
-                if begin <= published <= end:
-                    selected.append(item)
-                elif published > end:
-                    review["gaps"].append("公告目录包含截点后的资料，未纳入本期结论")
-            for item in selected:
-                try:
-                    _, pdf_receipt = session.get(item["original_url"], SOURCE, "pdf")
-                    if aware(pdf_receipt["fetched_at"]) > end:
-                        raise ValueError("pdf_first_seen_after_cutoff")
-                    parsed_pdf = extract_pdf(pdf_receipt["raw_locator"], max_seconds=min(10, session.remaining()))
-                    body_review = review_text(parsed_pdf["text"], company)
-                    observation = session.observe(SOURCE, item["original_url"], pdf_receipt["raw_sha256"], pdf_receipt["fetched_at"])
-                    evidence_id = "cninfo-pdf-" + pdf_receipt["raw_sha256"]
-                    text_path = directory / (evidence_id + ".txt")
-                    text_path.write_text(parsed_pdf["text"], encoding="utf-8")
-                    review["announcements"].append({**item, "evidence_id": evidence_id, "source_id": SOURCE,
-                        **observation, "fetched_at": pdf_receipt["fetched_at"], "content_hash": pdf_receipt["raw_sha256"],
-                        "raw_locator": pdf_receipt["raw_locator"], "text_locator": str(text_path.resolve()),
-                        "pages": parsed_pdf["pages"], "body_status": "extracted", **body_review})
-                    review["evidence_ids"].append(evidence_id)
-                    review["risk_flags"].extend(body_review["risk_flags"])
-                    review["risk_status"] = "review_required"
-                except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
-                    review["announcements"].append({**item, "body_status": "unavailable"})
-                    review["gaps"].append("公告正文未完成核查：" + type(exc).__name__)
-            if not review["gaps"]:
-                review.update(status="ready", covered_until_at=receipt["requested_at"],
-                    risk_status="review_required" if selected else "clear")
-                if selected:
-                    review["gaps"].append("正文语义尚待核验；不能仅凭标题或关键词形成正向推荐")
-            review["window_status"] = "complete" if parsed["complete"] else "partial"
+                if scope == 'future':
+                    review['gaps'].append('公告目录包含截点后的资料，未纳入本期结论')
+                    continue
+                if scope == 'start_boundary':
+                    review['gaps'].append('公告日期与查询起点重叠，保留风险核查但不能确认属于本期新增')
+                review['announcements'].append({**item, 'window_relation': scope,
+                    'directory_observed_at': receipt['fetched_at'], 'body_status': 'pending', 'semantic_status': 'pending'})
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
-            review["gaps"].append("公司公告核查未完成：" + type(exc).__name__)
-        atomic_json(directory / "company_reviews.json", reviews)
-    return {"reviews": reviews, "status": "ready" if all(r["status"] == "ready" for r in reviews.values()) else "partial",
-        "source_id": SOURCE}
+            review['gaps'].append('公司公告目录核查未完成：' + type(exc).__name__)
+        atomic_json(directory / 'company_reviews.json', reviews)
+    for index in range(max((len(r['announcements']) for r in reviews.values()), default=0)):
+        for candidate in candidates:
+            review = reviews[candidate['security_id']]
+            if index >= len(review['announcements']):
+                continue
+            item = review['announcements'][index]
+            try:
+                checked = _read_body(session, candidate, companies[candidate['security_id']], item,
+                    directory, cutoff, cache_directory, decision_directory)
+                review['announcements'][index] = checked
+                review['evidence_ids'].append(checked['evidence_id'])
+                review['risk_flags'].extend(checked['risk_flags'])
+                if checked.get('semantic_issue'):
+                    review.setdefault('semantic_issues', []).append(checked['semantic_issue'])
+            except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
+                code = str(exc) if re.fullmatch(r'[a-z][a-z0-9_]{1,100}', str(exc)) else 'request_or_parse_failed'
+                item.update(body_status='unavailable', body_issue=code, body_error_type=type(exc).__name__)
+                message = ('本期正文请求额度用尽，剩余公告保留待查' if code=='source_request_budget_exhausted' else
+                    '公告源访问受限，已停止该源请求' if isinstance(exc, PermissionError) else
+                    '正文未在本期时限内完成' if isinstance(exc, TimeoutError) else '公告正文获取或解析未完成，已保留诊断')
+                review['gaps'].append(message)
+    for review in reviews.values():
+        finalize_review(review)
+    atomic_json(directory / 'company_reviews.json', reviews)
+    return {'reviews': reviews, 'status': 'ready' if all(r['status']=='ready' for r in reviews.values()) else 'partial',
+            'source_id': SOURCE}
+
+
+def _read_body(session, candidate, company, item, directory, cutoff, cache_directory, decision_directory):
+    from .announcement_cache import load_body, store_body
+    from .announcement_review import apply_local_decision
+    cached = load_body(cache_directory, candidate, item, cutoff=cutoff)
+    if cached:
+        text = cached.pop('body_text')
+        checked = {**item, **cached, 'previously_observed': True}
+    else:
+        budget = getattr(session, 'budget', None)
+        if budget is not None and budget.used >= budget.maximum:
+            raise RuntimeError('source_request_budget_exhausted')
+        raw, receipt = session.get(item['original_url'], SOURCE, 'pdf')
+        if aware(receipt['fetched_at']) > aware(cutoff):
+            raise ValueError('pdf_first_seen_after_cutoff')
+        parsed = extract_pdf(receipt['raw_locator'], max_seconds=min(10, session.remaining()))
+        text = parsed['text']
+        review_text(text, company)
+        observation = session.observe(SOURCE, item['original_url'], receipt['raw_sha256'], receipt['fetched_at'])
+        text_path = directory/('cninfo-pdf-'+receipt['raw_sha256']+'.txt')
+        text_path.write_text(text, encoding='utf-8')
+        checked = {**item, **observation, 'fetched_at': receipt['fetched_at'], 'content_hash': receipt['raw_sha256'],
+            'raw_locator': receipt['raw_locator'], 'text_locator': str(text_path.resolve()), 'pages': parsed['pages'],
+            'cache_reused': False}
+        store_body(cache_directory, candidate, item, raw, text, receipt, observation, parsed['pages'])
+    checked.update(evidence_id='cninfo-pdf-'+checked['content_hash'], source_id=SOURCE, text_hash=hashlib.sha256(text.encode()).hexdigest(),
+        body_status='extracted', **review_text(text, company))
+    try:
+        return apply_local_decision(checked, candidate, text, decision_directory, cutoff=cutoff)
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        checked.update(semantic_status='pending', semantic_issue='本地核查记录未通过校验：'+type(exc).__name__)
+        return checked

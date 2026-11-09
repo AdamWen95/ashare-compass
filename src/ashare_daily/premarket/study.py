@@ -17,7 +17,9 @@ def followup_observations(brief: dict, bars: dict, calendar: dict, *, as_of: str
         if value and current > anchor:
             days.append(current.isoformat())
         current += timedelta(days=1)
-    selected = {r["security_id"] for r in brief["focus_candidates"]}
+    from .contracts import OBSERVATION_SCHEMAS
+    key = 'watch_candidates' if brief.get('schema_version') in OBSERVATION_SCHEMAS else 'focus_candidates'
+    selected = {r["security_id"] for r in brief[key]}
     baseline = set(brief.get("baseline_ids", []))
     records = []
     for identity in sorted(selected | baseline):

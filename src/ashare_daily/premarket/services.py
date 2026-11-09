@@ -14,6 +14,7 @@ from .source_policy import coverage_summary
 from .source_http import SourceSession
 from .policy_sources import collect_policy_sources
 from .announcements import collect_company_reviews, SOURCE as COMPANY_SOURCE
+from .announcement_review import VERSION as COMPANY_VERSION
 
 
 class PremarketServices:
@@ -52,7 +53,10 @@ class PremarketServices:
         local = collect_policy_sources(session, start=window["start_at"], cutoff=schedule["news_cutoff_at"],
             directory=directory / "local_sources", enabled=enabled)
         company = collect_company_reviews(session, prepared["preselection"]["candidates"],
-            start=window["start_at"], cutoff=schedule["news_cutoff_at"], directory=directory / "local_sources") if COMPANY_SOURCE in enabled else {"reviews": {}, "status": "disabled"}
+            start=window["start_at"], cutoff=schedule["news_cutoff_at"], directory=directory / "local_sources",
+            cache_directory=self.project/'data/research/premarket_announcements',
+            decision_directory=self.project/'.local/company_review_decisions',
+            query_windows=prepared.get('company_query_windows')) if COMPANY_SOURCE in enabled else {"reviews": {}, "status": "disabled"}
         reviews = company["reviews"]
         company_times = [r["covered_until_at"] for r in reviews.values() if r.get("covered_until_at")]
         local["source_health"].append({"source_id": COMPANY_SOURCE,
@@ -60,6 +64,7 @@ class PremarketServices:
             "failures": [gap for r in reviews.values() for gap in r.get("gaps", [])],
             "covered_until_at": min(company_times, key=aware) if company_times else None,
             "semantic_review_required": any(r.get("risk_status") == "review_required" for r in reviews.values()),
+            "collection_status": 'complete' if company['status']=='not_applicable' or reviews and all(r.get('collection_status')=='complete' for r in reviews.values()) else 'partial',
             "notice": "公司核查仅覆盖本期最多5只预选股；没有预选时不发起公司请求"})
         actual_cutoff = schedule["news_cutoff_at"] if until <= 300 else datetime.now(SHANGHAI).isoformat()
         # Licensed text for the existing model is an optional supplement after
@@ -88,7 +93,7 @@ class PremarketServices:
         coverage["registered_scope"] = {s["registration"]["source_id"]: s.get("coverage_scope", s.get("access_method", ""))
             for s in local_sources if s["registration"].get("enabled") is True}
         coverage["uncovered_roles"] = ["央行及国务院直接政策栏目", "证监会及上交所监管通知", "海外市场、汇率及期货的综合资讯"]
-        result = {"coverage": coverage, "bundle_file": bundle_file, "company_reviews": reviews,
+        result = {"coverage": coverage, "bundle_file": bundle_file, "company_reviews": reviews, "company_review_version": COMPANY_VERSION,
                   "local_events": local["events"], "window": window, "collection_file": collection.get("bundle_file"),
                   "collection_cutoff_at": collection_cutoff,
                   "local_sources_directory": str(session.directory), "supplement_error": local.get("supplement_error")}

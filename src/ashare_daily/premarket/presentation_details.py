@@ -53,13 +53,31 @@ def stock_details(row):
         list_block('公司资料待查',review.get('gaps',[])),list_block('公告风险定位',review.get('risk_flags',[])),
         list_block('财务风险',review.get('financial_risk_flags',[])),list_block('财务待查',review.get('financial_gaps',[]))]
     components=row.get('score_components',[])
+    if review.get('review_version') == 'company-review-v2':
+        from .announcement_review import company_progress
+        progress = company_progress(review)
+        labels={'complete':'已完成','partial':'部分取得','unavailable':'未取得','available':'已取得','pending':'待核查'}
+        count=progress.get('announcement_count',0)
+        values.insert(0, '<h4>公司资料核查进度</h4>'+table(['环节','进度'],[
+            ['公告目录',labels.get(progress.get('directory_status'),'未取得')],
+            ['公告正文',str(progress.get('body_count',0))+'/'+str(count)],
+            ['公告语义核查',str(progress.get('semantic_reviewed_count',0))+'/'+str(count)],
+            ['财务接口字段',labels.get(progress['financial_status'],'待核查')],
+            ['本期窗口核查结论','所查范围未发现已确认不利事实' if progress['window_review_complete'] else '仍有缺口或风险待评估']
+        ])+paragraphs([progress['scope_notice']],'pmr-muted'))
     if components:
         values.append('<h4>技术评分构成</h4>'+table(['条件','分值','依据'],[
             [c.get('label'),c.get('points'),c.get('reason')] for c in components]))
     for announcement in review.get('announcements',[]):
         values.append('<div class="pmr-source"><h4>'+text(announcement.get('title'))+'</h4><p>'+text(announcement.get('published_at'))+
-            (' · 正文已取得，语义待核验' if announcement.get('body_status')=='extracted' else ' · 正文未取得')+'</p>'+
+            (' · 正文已取得，已登记语义核查' if announcement.get('semantic_status')=='reviewed' else
+             ' · 正文已取得，语义待核验' if announcement.get('body_status')=='extracted' else ' · 正文未取得')+'</p>'+
             source_link(announcement.get('original_url',''),'查看公司公告',company=True)+'</div>')
+        if announcement.get('cache_reused'):
+            values.append(paragraphs([announcement.get('cache_notice'), '正文版本取得时间：'+str(announcement.get('fetched_at'))],'pmr-muted'))
+        if announcement.get('semantic_decision'):
+            decision=announcement['semantic_decision']
+            values.append(paragraphs(['已登记正文核查：'+decision['rationale'], '核查时间：'+decision['reviewed_at']]))
     if review.get('financial_facts'):
         values.append(json_details('财务原始事实与来源（保留接口口径）',{
             'facts':review['financial_facts'],'provenance':review.get('financial_provenance',{})}))

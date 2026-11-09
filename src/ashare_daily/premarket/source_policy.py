@@ -8,10 +8,13 @@ def coverage_summary(registry: dict, collection: dict, *, required_roles: list[s
     for role in required_roles:
         sources = [s for s in registry.get("sources", []) if role in s.get("research_roles", [])]
         active = [s for s in sources if s["registration"].get("enabled") is True]
-        ready, gaps = [], []
+        ready, gaps, acquired = [], [], []
         for source in active:
             key = source["registration"]["source_id"]
             record = health.get(key, {})
+            if (record.get('collection_status') == 'complete' or record.get('status') in {'ok','empty_bounded_window'}
+                    and not record.get('failures') and not record.get('index_limit_reached') and not record.get('article_limit_reached')):
+                acquired.append(key)
             ambiguous = any(r.get("source_id") == key and r.get("reason") in {
                 "after_cutoff_or_date_precision_ambiguous", "first_seen_after_cutoff"}
                 for r in collection.get("rejected", []))
@@ -23,7 +26,10 @@ def coverage_summary(registry: dict, collection: dict, *, required_roles: list[s
             else:
                 gaps.append(key)
         status = "not_enabled" if not active else "ready" if ready and not gaps else "partial" if ready else "unavailable"
-        roles[role] = {"status": status, "ready_sources": ready, "incomplete_sources": gaps}
+        roles[role] = {"status": status, "ready_sources": ready, "incomplete_sources": gaps,
+            'collection_status': 'not_enabled' if not active else 'complete' if len(acquired)==len(active) else
+                'partial' if any(health.get(s['registration']['source_id'],{}).get('status') in {'ok','partial','empty_bounded_window'} for s in active) else 'unavailable',
+            'collected_sources': acquired, 'semantic_status': 'complete' if status=='ready' else 'pending'}
     source_ids = {key for r in roles.values() for key in r["ready_sources"]}
     observed = [r.get("requested_at", r["fetched_at"]) for r in collection.get("requests", []) if r.get("source_id") in source_ids
                 and r.get("role") in {"index", "article"} and r.get("status") == "ok" and r.get("fetched_at")]

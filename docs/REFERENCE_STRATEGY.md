@@ -23,3 +23,19 @@
 使用固定 120 个交易日窗口。输入缺失、来源不符或无法计算时保留缺口，不填默认分数代替有效结果。输出绑定证券集合、交易日、输入哈希及观察版本。
 
 分数不是上涨概率，也没有证据证明它优于原有排序。离线对照脚本 `scripts/compare_reference_strategy.py` 只描述冻结样本的后续价格变化，不能解释为可成交回测、账户收益或稳定获利能力。
+
+2026-11-06 新增独立分类评分的旁路实验。v6早报保留上述旧评分和正式名单，另列
+趋势延续、强势整理、超跌修复观察及四维评分；新分只用于同类样本的离线对照。
+规则、适用范围及回退见 [分类评分 ADR](PREMARKET_SHADOW_SCORING.md)。
+现有日任务发布后最多检查20份v6归档，复用本轮已冻结历史生成运行目录下的
+`shadow_followup.json`，不增加采集、模型调用或第二套定时任务。
+
+手工离线对照（输出文件必须不存在；所有输入均为已核验归档）：
+
+```powershell
+python scripts/compare_premarket_shadow.py --output-root outputs --report-directory outputs/research/sse_szse_a/premarket_reports/YYYY-MM-DD/brief-ID --evidence-directory PATH_TO_FROZEN_OBSERVATION --as-of YYYY-MM-DD --output new-shadow-study.json
+```
+
+每个 `--report-directory` 和 `--evidence-directory` 可重复。对照从发布后目标交易日
+收盘开始，3/5/10日未成熟、历史缺失、复权冲突和独立行业序列缺失分别保留。
+只使用同一完整复权版本计算每条价格路径，不跨版本拼接，不自动晋级正式排序。

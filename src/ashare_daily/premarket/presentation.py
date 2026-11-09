@@ -1,7 +1,7 @@
 """Read-only presentation of frozen reports; no classification or data writes."""
 from decimal import Decimal
 
-from .contracts import OBSERVATION_SCHEMAS, STATE_SCHEMA, aware, decimal
+from .contracts import OBSERVATION_SCHEMAS, STATE_SCHEMAS, aware, decimal
 from .coverage import comparison_label
 from .report import direction_facts
 from .presentation_details import (text,paragraphs,list_block,stock_details,news_details,audit_details,coverage_details)
@@ -41,7 +41,7 @@ def metric(label,value,context='',color=''):
 
 
 def market_section(report):
-    phased=report['schema_version']==STATE_SCHEMA
+    phased=report['schema_version'] in STATE_SCHEMAS
     assessment=report['market_state'] if phased else report['stance']
     title='市场状态' if phased else '市场姿态'
     market=report['market'];index=market.get('benchmark') or {};components=market.get('components',{})
@@ -145,9 +145,14 @@ def watch_section(report):
     groups=[('观察名单与风险','watch_candidates')] if observation else [('重点关注股票','focus_candidates'),('待核查观察','pending_candidates')]
     count=sum(len(report[key]) for _,key in groups)
     body=heading('观察名单与风险' if observation else '关注股票与风险','03','pmr-watch',f'{count}只股票 · 展开查看条件与完整风险')
-    state_label='市场状态' if report['schema_version']==STATE_SCHEMA else '市场姿态'
+    state_label='市场状态' if report['schema_version'] in STATE_SCHEMAS else '市场姿态'
     body+='<p class="pmr-muted">观察名单独立于'+state_label+'；名单内只列研究条件，不构成买入指令。</p>'
     body+='<p class="pmr-muted">技术评分仅用于研究排序，不是上涨概率；报告日交易状态仍待核验。</p>'
+    if 'company_review_progress' in report:
+        progress=list(report['company_review_progress'].values())
+        processed=sum(r['processing_complete'] for r in progress)
+        cleared=sum(r['window_review_complete'] for r in progress)
+        body+=f'<p class="pmr-muted">公司资料处理进度：公告及所接入财务资料已完成处理 {processed}/{len(progress)}；所查范围未发现已确认不利事实 {cleared}/{len(progress)}。处理完成与风险结论分别统计，展开查看各环节和缺项。</p>'
     for title,key in groups:
         if not observation:body+='<h3>'+text(title)+'</h3>'
         if not report[key]:body+='<p class="pmr-empty">本期观察名单为空，不强行补足；核查范围与缺口见数据覆盖。</p>'
@@ -162,6 +167,9 @@ def render_body(report):
     meta+='<span>消息截点 <b>'+timestamp(report.get('news_cutoff_at'))+'</b></span><span>实际发布 <b>'+timestamp(report.get('published_at'))+'</b></span><span>北京时间</span>'
     body='<div id="premarket-reader" class="pmr"><header class="pmr-edition"><div><p class="pmr-kicker">今日方向简报 · 只读研究</p><h1>'+text(report['title'])+'</h1></div></header>'
     body+='<div class="pmr-dates">'+meta+'</div>'+market_section(report)+directions_section(report)+watch_section(report)
+    if report.get('shadow_analysis'):
+        from .shadow_presentation import shadow_panel
+        body += shadow_panel(report)
     body+='<div class="pmr-support">'
     for id_,label,count,content in [('pmr-news','隔夜重要变化与出处',f'{len(report["overnight_events"])}条记录',news_details(report)),
         ('pmr-audit','完整筛选明细',f'{len(report.get("screening_audit",[]))}只筛选',audit_details(report)),

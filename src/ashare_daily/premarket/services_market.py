@@ -22,6 +22,7 @@ from .timing import universe_budget_seconds
 from .selection import build_observation_selection
 from .security_events import load_security_events
 from .coverage import market_basis_universe
+from .shadow_inputs import build_shadow_inputs, unavailable_inputs
 
 
 def _available_market(project, sector, packet, selection, schedule, directory, master_day, seconds, *, reason, online,
@@ -61,7 +62,8 @@ def _available_market(project, sector, packet, selection, schedule, directory, m
         "company_reviews": {}, "financial_review": None,
         "entities": {row["symbol"]: {key: row[key] for key in ("security_id", "name", "sector_ids")}
             for row in preselection["candidates"]}, "selection_id": selection["selection_id"],
-        "universe_observed_date": master_day, "preparation_issues": gaps}
+        "universe_observed_date": master_day, "preparation_issues": gaps,
+        "shadow_inputs": unavailable_inputs(selection['selection_id'], schedule['market_as_of_date'], reason)}
     atomic_json(directory / "market_preparation.json", result)
     return result
 
@@ -124,10 +126,11 @@ def _collect_packet(project, config, schedule, seconds, run_id, universe_max_sec
                     packet['market_universe']=previous
         except (ValueError,OSError,RuntimeError):
             packet['market_universe_status']='unavailable'
-    if left() > 1 and packet['universe'].get('universe_verified') is True:
+    if left() > 1:
         packet = supplement_zero_quotes(project, packet, schedule["market_as_of_date"], source_dir / "dated_status",
             max_seconds=min(options["max_quote_status_seconds"], left()), max_queries=options["max_quote_status_queries"],
-            universe_observed_date=master_day if master_day != schedule["market_as_of_date"] else None)
+            universe_observed_date=master_day if master_day != schedule["market_as_of_date"] else None,
+            allow_partial_universe=packet['universe'].get('universe_verified') is not True)
     return packet
 
 
@@ -181,6 +184,13 @@ def prepare_collected_market(project, config, schedule, directory, seconds, pack
             reason="个股历史或评分准备未完成，保留已核验市场事实（" + type(exc).__name__ + "）",
             online=False, benchmark=benchmark, evaluations=base["evaluations"] if base is not None else None,
             allow_unknown=observation is None)
+    shadow = unavailable_inputs(selection['selection_id'], selection['target_date'], '旁路计算时限不足')
+    if left() >= 1:
+        try:
+            shadow = build_shadow_inputs(selection, inputs, observation, reference)
+        except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
+            shadow = unavailable_inputs(selection['selection_id'], selection['target_date'],
+                '旁路输入核验未完成：' + type(exc).__name__)
     finance_policy = options.get("financial_review", {})
     financials = None
     if finance_policy.get("enabled") and left() >= 1:
@@ -199,6 +209,7 @@ def prepare_collected_market(project, config, schedule, directory, seconds, pack
         market['research_coverage'] = deepcopy(selection['research_coverage'])
     result = {"market": market, "preselection": preselection, "company_reviews": {}, "financial_review": financials,
         "entities": entities, "selection_id": selection["selection_id"], "universe_observed_date": master_day,
-        "source_paths": {"selection_id": selection["selection_id"], "observation": observation["evidence_directory"]}}
+        "source_paths": {"selection_id": selection["selection_id"], "observation": observation["evidence_directory"]},
+        "shadow_inputs": shadow}
     atomic_json(directory / "market_preparation.json", result)
     return result

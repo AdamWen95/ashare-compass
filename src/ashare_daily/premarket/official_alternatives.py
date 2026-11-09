@@ -90,13 +90,17 @@ def parse_alternative_article(body, provider, item):
     published = date(*map(int, match.groups())).isoformat()
     if published != item["date"]:
         raise ValueError("official_article_date_mismatch")
-    if provider == "mof" and not re.search(r"来源\s*[:：]\s*财政部新闻办公室", text[:200]):
-        raise ValueError("mof_original_publisher_unverified")
+    publisher = '深圳证券交易所'
+    if provider == 'mof':
+        source = re.search(r'来源\s*[:：]\s*(财政部新闻办公室|国库司)(?=\s|$)', text[:200])
+        if not source:
+            raise ValueError('mof_original_publisher_unverified')
+        publisher = source[1]
     metadata = parser.meta.get("pubdate")
     return {"title": title, "content": text, "content_type": "abstract" if parser.attachment_urls else "fulltext",
         "published_at": published, "publication_precision": "date", "original_url": item["url"],
         "public_url": "https://www.szse.cn/" if provider == "szse" else item["url"],
-        "original_publisher": "深圳证券交易所" if provider == "szse" else "财政部新闻办公室",
+        "original_publisher": publisher,
         "article_metadata_time": metadata, "directory_published_at": item["date"],
         "time_conflict": bool(metadata and metadata[:10] != published), "effective_at": None,
         "effective_time_status": "unverified", "model_use_allowed": False, "attachments_read": False,

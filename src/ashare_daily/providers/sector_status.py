@@ -140,13 +140,16 @@ def _response(root, ref, symbol, identity, target, mode, refs, *, cached):
         "evidence_id": "baostock-status-" + _digest({"security_id": identity["security_id"], "target": target, "source_hash": source_hash})}
 
 
-def _universe_date(universe, target, observed_date):
+def _universe_date(universe, target, observed_date, *, allow_partial_universe=False):
     """Opt in to a frozen morning universe without relabeling its source dates."""
     universe_day = target if observed_date is None else observed_date
+    if allow_partial_universe:
+        from ..universe_coverage import assess_universe_coverage
+        assess_universe_coverage(universe)
     if (not isinstance(universe_day, str) or date.fromisoformat(universe_day).isoformat() != universe_day
             or universe.get("scope") != "sse_szse_a" or universe.get("requested_date") != universe_day
-            or universe.get("resolved_trade_date") != universe_day or universe.get("universe_verified") is not True
-            or universe.get("calendar_verified") is not True or universe.get("collection_ready") is not True):
+            or universe.get("resolved_trade_date") != universe_day or not allow_partial_universe and universe.get("universe_verified") is not True
+            or universe.get("calendar_verified") is not True or not allow_partial_universe and universe.get("collection_ready") is not True):
         raise ValueError("status_universe_date_or_verification_invalid")
     if observed_date is not None:
         if not target < universe_day <= datetime.now(SHANGHAI).date().isoformat():
@@ -163,7 +166,7 @@ def _universe_date(universe, target, observed_date):
     return universe_day
 
 
-def apply_status_evidence(root, universe, quotes, target, evidence_path, *, universe_observed_date=None):
+def apply_status_evidence(root, universe, quotes, target, evidence_path, *, universe_observed_date=None, allow_partial_universe=False):
     """Return a new quote packet after revalidating actual dated SDK evidence."""
     root = Path(root).resolve()
     if not isinstance(target, str) or date.fromisoformat(target).isoformat() != target:
@@ -171,7 +174,7 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path, *, univ
     mode = universe.get("mode")
     if mode not in {"research", "offline_test"}:
         raise ValueError("status_universe_mode_invalid")
-    universe_day = _universe_date(universe, target, universe_observed_date)
+    universe_day = _universe_date(universe, target, universe_observed_date, allow_partial_universe=allow_partial_universe)
     _permission(root)
     refs = {}
     for ref in quotes.get("file_refs", []):
@@ -183,6 +186,7 @@ def apply_status_evidence(root, universe, quotes, target, evidence_path, *, univ
             or manifest.get("mode") != mode or manifest.get("scope") != "sse_szse_a"
             or manifest.get("universe_snapshot_id") != universe.get("snapshot_id")
             or manifest.get("universe_observed_date", universe_observed_date) != universe_observed_date
+            or manifest.get('allow_partial_universe', False) is not allow_partial_universe
             or manifest.get("source_endpoint") != ENDPOINT or not manifest.get("permission_basis")
             or manifest.get("online_requested") is not (mode == "research")):
         raise ValueError("status_manifest_scope_date_identity_or_provenance_invalid")

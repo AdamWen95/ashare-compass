@@ -158,6 +158,9 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
                             prepared = services.market(schedule, directory, min(policy["market_max_seconds"], remaining(stage)), run_id)
                         record["module_statuses"][stage] = prepared["market"]["status"]
                     elif stage == "news":
+                        from ..premarket.company_windows import company_query_windows
+                        prepared['company_query_windows'] = company_query_windows(archives, prepared['preselection']['candidates'],
+                            start=window['start_at'], cutoff=schedule['news_cutoff_at'])
                         news = services.news(schedule, window, prepared, directory, remaining(stage)) if remaining(stage) > 0 else {}
                         record["module_statuses"][stage] = "ready" if news.get("coverage", {}).get("ready") else "partial"
                     else:
@@ -180,7 +183,10 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
             company = merge_company_reviews(prepared["preselection"], news.get("company_reviews", {}), prepared.get("financial_review"))
             candidates = finalize_candidates(prepared["preselection"], company_reviews=company, stance=assessment, events=events)
             report = build_brief(schedule=schedule, market=prepared["market"], market_state=assessment, candidates=candidates,
-                events=events, coverage=coverage, previous=prior, generated_at=clock.now().isoformat())
+                events=events, coverage=coverage, previous=prior, generated_at=clock.now().isoformat(),
+                shadow_inputs=prepared.get('shadow_inputs'), company_review_version=news.get('company_review_version'))
+            if report.get('shadow_analysis'):
+                record['module_statuses']['shadow_analysis'] = report['shadow_analysis']['status']
             covered_until = coverage.get("covered_until_at")
             if coverage.get("ready") is True and covered_until and aware(window["start_at"]) < aware(covered_until) <= aware(schedule["news_cutoff_at"]):
                 watermark = covered_until
@@ -192,6 +198,17 @@ def run_premarket_daily(*, project, config, config_path, target, cutoff, start, 
             while clock.now() < aware(schedule["publication_due_at"]):
                 clock.sleep(min(1, (aware(schedule["publication_due_at"])-clock.now()).total_seconds()))
             published = publish_brief(project, report, now=clock.now())
+            if report.get('shadow_analysis'):
+                from ..premarket.shadow_tracking import track_shadow_history
+                try:
+                    record['shadow_followup'] = track_shadow_history(project, archives, prepared, directory,
+                        as_of=clock.now().date().isoformat())
+                    record['module_statuses']['shadow_followup'] = record['shadow_followup']['status']
+                except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
+                    # Optional local research runs after publication. A failure
+                    # is observable and must never turn a published report into a retry.
+                    record['module_statuses']['shadow_followup'] = 'unavailable'
+                    record.setdefault('errors', []).append({'stage': 'shadow_followup', 'type': type(exc).__name__})
             return finish("ok" if report["research_status"] == "ready" else "partial",
                 0 if report["research_status"] == "ready" else 1, generation_status="ok", report=published)
     except AlreadyRunning:

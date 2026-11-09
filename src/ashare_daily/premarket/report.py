@@ -6,7 +6,7 @@ from datetime import date
 
 from ..sector_selection import digest
 from .contracts import (SCHEMA, READABLE_SCHEMAS, STANCE_VERSION, RECOMMENDATION_VERSION,
-    OBSERVATION_SCHEMA, OBSERVATION_SCHEMAS, COVERAGE_SCHEMA, COVERAGE_VERSION, STATE_SCHEMA,
+    OBSERVATION_SCHEMA, OBSERVATION_SCHEMAS, COVERAGE_SCHEMA, COVERAGE_VERSION, STATE_SCHEMA, STATE_SCHEMAS, SHADOW_SCHEMA, SHADOW_SCHEMAS, REVIEW_SCHEMA,
     INDEPENDENT_STANCE_VERSION, OBSERVATION_VERSION, aware, decimal)
 from .coverage import validate_coverage, coverage_notice, comparison_label
 from .decisions import decide_stance
@@ -16,7 +16,7 @@ NOTICE = "3–10个交易日短线波段研究；姿态是整体市场倾向，�
 
 
 def build_brief(*, schedule, market, candidates, events, coverage, previous, generated_at,
-                stance=None, market_state=None) -> dict:
+                stance=None, market_state=None, shadow_inputs=None, company_review_version=None) -> dict:
     if (stance is None)==(market_state is None):
         raise ValueError('premarket_assessment_required')
     phased = market_state is not None
@@ -34,6 +34,15 @@ def build_brief(*, schedule, market, candidates, events, coverage, previous, gen
         raise ValueError("premarket_observation_version_invalid")
     covered = observation and preselection.get('rule_version') == COVERAGE_VERSION
     schema = STATE_SCHEMA if phased else COVERAGE_SCHEMA if covered else OBSERVATION_SCHEMA if observation else SCHEMA
+    if shadow_inputs is not None:
+        if not phased:
+            raise ValueError('premarket_shadow_requires_market_state')
+        schema = SHADOW_SCHEMA
+        if company_review_version is not None:
+            from .announcement_review import VERSION as COMPANY_VERSION
+            if company_review_version != COMPANY_VERSION:
+                raise ValueError('premarket_company_version_invalid')
+            schema = REVIEW_SCHEMA
     recommendation = preselection['rule_version'] if observation else RECOMMENDATION_VERSION
     comparable = (previous is not None and previous.get("schema_version") == schema
         and previous.get("rule_versions", {}).get("recommendation") == recommendation)
@@ -93,6 +102,16 @@ def build_brief(*, schedule, market, candidates, events, coverage, previous, gen
         report['research_coverage'] = deepcopy(preselection['research_coverage'])
         if report['research_coverage']['comparison_scope']=='observed_sample':
             report['research_status']='partial'
+    if shadow_inputs is not None:
+        from .shadow_analysis import attach_shadow_analysis
+        from .shadow_scoring import VERSION
+        report = attach_shadow_analysis(report, shadow_inputs)
+        report['rule_versions']['shadow'] = VERSION
+        report['input_hashes']['shadow'] = digest(shadow_inputs)
+    if schema == REVIEW_SCHEMA:
+        from .announcement_review import company_progress
+        report['rule_versions']['company_review'] = company_review_version
+        report['company_review_progress'] = {row['security_id']: company_progress(row.get('company_review', {})) for row in watch}
     validate_brief(report)
     return report
 
@@ -105,7 +124,7 @@ def validate_brief(report: dict) -> None:
         raise ValueError("premarket_report_date_invalid")
     for key in ("generated_at", "news_cutoff_at", "publication_due_at"):
         aware(report[key])
-    phased = report['schema_version']==STATE_SCHEMA
+    phased = report['schema_version'] in STATE_SCHEMAS
     stance = report.get("stance",{}).get("stance")
     legacy = report["schema_version"] == "premarket-brief-v1"
     observation = report["schema_version"] in OBSERVATION_SCHEMAS
@@ -139,6 +158,23 @@ def validate_brief(report: dict) -> None:
         raise ValueError("premarket_focus_invalid")
     if observation:
         _validate_observation(report)
+    if report['schema_version'] in SHADOW_SCHEMAS:
+        from .shadow_analysis import build_shadow_analysis
+        from .shadow_scoring import VERSION
+        source = report.get('shadow_inputs', {})
+        if (report.get('rule_versions', {}).get('shadow') != VERSION
+                or report.get('input_hashes', {}).get('shadow') != digest(source)
+                or report.get('shadow_analysis') != build_shadow_analysis(report, source)):
+            raise ValueError('premarket_shadow_evidence_mismatch')
+    elif any(key in report for key in ('shadow_inputs', 'shadow_analysis')):
+        raise ValueError('premarket_shadow_version_required')
+    if report['schema_version'] == REVIEW_SCHEMA:
+        from .announcement_review import company_progress, validate_review, VERSION as COMPANY_VERSION
+        for row in report['watch_candidates'] + report.get('excluded_candidates', []):
+            validate_review(row.get('company_review', {}), cutoff=report['news_cutoff_at'], security_id=row['security_id'], symbol=row['symbol'])
+        expected = {row['security_id']: company_progress(row.get('company_review', {})) for row in report['watch_candidates']}
+        if report.get('rule_versions',{}).get('company_review') != COMPANY_VERSION or report.get('company_review_progress') != expected:
+            raise ValueError('premarket_company_progress_mismatch')
     if report['schema_version']==COVERAGE_SCHEMA or phased and 'research_coverage' in report:
         value=report.get('research_coverage',{})
         validate_coverage(value)
@@ -167,7 +203,7 @@ def _validate_observation(report):
     try:
         require(report["rule_versions"].get("recommendation") ==
             (COVERAGE_VERSION if report['schema_version']==COVERAGE_SCHEMA
-             or report['schema_version']==STATE_SCHEMA and 'research_coverage' in report else OBSERVATION_VERSION))
+             or report['schema_version'] in STATE_SCHEMAS and 'research_coverage' in report else OBSERVATION_VERSION))
         require(not report["focus_candidates"] and not report["pending_candidates"])
         rows, audit = report["watch_candidates"], report.get("screening_audit", [])
         require(isinstance(rows, list) and len(rows) <= 5)
@@ -240,7 +276,7 @@ def observation_facts(row):
 
 
 def report_sections(report: dict) -> list:
-    phased=report['schema_version']==STATE_SCHEMA
+    phased=report['schema_version'] in STATE_SCHEMAS
     stance = report['market_state'] if phased else report["stance"]
     overview = [("paragraph", stance["label"] + "：" + "；".join(stance["reasons"])),
         ("table", (["时间口径", "记录"], [[label, report[key]] for label, key in (
@@ -279,11 +315,17 @@ def report_sections(report: dict) -> list:
             stocks.extend(("paragraph", fact) for fact in observation_facts(row))
             stocks.extend(("paragraph", "风险：" + text) for text in row.get("observation_risks", []))
             review = row.get("company_review", {})
+            if review.get('review_version') == 'company-review-v2':
+                from .announcement_review import company_progress
+                progress = company_progress(review)
+                stocks.append(('paragraph', f"公告目录 {progress.get('directory_status','未取得')}；正文 {progress.get('body_count',0)}/{progress.get('announcement_count',0)}；语义核查 {progress.get('semantic_reviewed_count',0)}/{progress.get('announcement_count',0)}；财务接口 {progress['financial_status']}。"))
+                stocks.append(('paragraph', progress['scope_notice']))
             stocks.extend(("paragraph", "公告待查：" + text) for text in review.get("gaps", []))
             stocks.extend(("paragraph", "公告风险定位：" + text) for text in review.get("risk_flags", []))
             for announcement in review.get("announcements", []):
                 stocks.append(("paragraph", "公告：" + announcement["title"] + " · " + announcement["published_at"]
-                    + " · " + announcement["original_url"] + ("；正文已取得，语义待核验" if announcement.get("body_status") == "extracted" else "；正文未取得")))
+                    + " · " + announcement["original_url"] + ("；正文已取得，已登记语义核查" if announcement.get('semantic_status')=='reviewed'
+                        else "；正文已取得，语义待核验" if announcement.get("body_status") == "extracted" else "；正文未取得")))
             stocks.extend(("paragraph", "财务风险：" + text) for text in review.get("financial_risk_flags", []))
             stocks.extend(("paragraph", "财务缺口：" + text) for text in review.get("financial_gaps", []))
             if review.get("financial_facts"):
@@ -296,9 +338,14 @@ def report_sections(report: dict) -> list:
     for event in report["overnight_events"]:
         news.append(("paragraph", ("此前已观察，保留为背景：" if event.get("is_background") else "") + event["text"]))
         news.extend(("paragraph", source.get("public_url", source["original_url"])) for source in event.get("sources", []))
+    shadow = []
+    if report.get('shadow_analysis'):
+        from .shadow_presentation import shadow_sections
+        shadow = shadow_sections(report)
     return [("市场状态与时间" if phased else "市场姿态与时间", overview), *separate,
             ("相对表现观察方向" if observation else "重点方向", directions),
             ("观察名单与风险" if observation else "关注股票与风险", stocks),
+            *shadow,
             ("隔夜变化", news or [("paragraph", "暂无已核验的新事件，不代表没有消息。")]),
             ("完整筛选明细", [("table", (["证券", "名称", "量价条件", "基本资格", "指标"], [
                 [r.get("symbol"), r.get("name"), r.get("technical_status"), r.get("eligibility_status"), str(r.get("metrics", {}))]

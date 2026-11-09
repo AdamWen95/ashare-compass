@@ -49,12 +49,15 @@ def load_options(project, path):
     return options
 
 
-def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, max_queries, universe_observed_date=None):
+def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, max_queries, universe_observed_date=None, allow_partial_universe=False):
     """Only dated zero/missing-price observations; no inferred suspension."""
     from ..providers.sector_status import _permission, apply_status_evidence, ENDPOINT, SCHEMA
     from ..providers.baostock_f2 import BaoStockF2Client
     from ..sector_pipeline import write_new
     _permission(project)
+    if allow_partial_universe:
+        from ..universe_coverage import assess_universe_coverage
+        assess_universe_coverage(packet['universe'])
     members = {({"SSE": "sh", "SZSE": "sz"}.get(m["exchange"], "?") + m["code"]): m
         for m in packet["universe"]["members"] if m.get("security_type") == "ordinary_a"}
     needed = []
@@ -69,7 +72,7 @@ def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, m
         ("security_id", "code", "exchange", "board", "security_type", "metadata_verified")} for symbol in selected}
     date_context = {} if universe_observed_date is None else {"universe_observed_date": universe_observed_date}
     write_new(directory / "manifest.json", {"schema_version": SCHEMA, "target_date": target, **date_context,
-        "scope": "sse_szse_a", "mode": "research", "online_requested": True,
+        "scope": "sse_szse_a", "mode": "research", "online_requested": True, 'allow_partial_universe': allow_partial_universe,
         "environment_label": "daily_observation_live", "permission_basis": "existing_registered_baostock_local_dated_state",
         "universe_snapshot_id": packet["universe"]["snapshot_id"], "source_endpoint": ENDPOINT,
         "calendar": packet["calendar"], "identities": identities, "observed_at": datetime.now(SHANGHAI).isoformat(),
@@ -107,7 +110,7 @@ def supplement_zero_quotes(project, packet, target, directory, *, max_seconds, m
     # The shared reader independently replays response hashes, SDK completion,
     # date, identity and calendar. Any malformed proof keeps selection blocked.
     updated["quotes"] = apply_status_evidence(project, packet["universe"], packet["quotes"], target, result_path,
-        universe_observed_date=universe_observed_date)
+        universe_observed_date=universe_observed_date, allow_partial_universe=allow_partial_universe)
     updated["daily_status_result"] = str(result_path)
     return updated
 
